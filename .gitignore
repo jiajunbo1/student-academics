@@ -17,3 +17,6 @@ dev/data/
 .env
 .env.*
 !.env.example
+
+# Qoder Sites 本地恢复描述文件（含部署标识，机器专用）
+site/.学业管理系统.qoder.site
