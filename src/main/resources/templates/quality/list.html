@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('综合素质')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav('quality')}"></nav>
+<div class="container-fluid py-4 px-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">综合素质记录</h5>
+        <form class="d-flex align-items-center gap-2" method="get" th:action="@{/quality}">
+            <label class="col-form-label-sm">班级</label>
+            <select name="classId" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">全部班级</option>
+                <option th:each="c : ${classes}" th:value="${c.id}" th:text="${c.name}" th:selected="${c.id==classId}"></option>
+            </select>
+        </form>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="qTabs">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabDisc">奖惩记录</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAct">活动参与</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabRev">教师评语</a></li>
+    </ul>
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="tabDisc">
+            <div class="row g-3">
+                <div class="col-lg-8"><div class="card"><div class="card-body p-0">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr><th>学生</th><th>班级</th><th>类型</th><th>内容</th><th>日期</th><th></th></tr></thead>
+                        <tbody>
+                        <tr th:each="d : ${disciplines}">
+                            <td th:text="${d.studentName}"></td><td th:text="${d.className}"></td>
+                            <td><span class="badge" th:classappend="${d.type=='奖励'}?'bg-success':'bg-danger'" th:text="${d.type}"></span></td>
+                            <td th:text="${d.content}"></td><td th:text="${d.eventDate}"></td>
+                            <td><a class="btn btn-sm btn-outline-danger py-0" th:href="@{'/quality/discipline/delete/' + ${d.id}}">删</a></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(disciplines)}"><td colspan="6" class="text-center text-muted py-4">暂无记录</td></tr>
+                        </tbody>
+                    </table>
+                </div></div></div>
+                <div class="col-lg-4"><div class="card"><div class="card-body">
+                    <h6>新增奖惩</h6>
+                    <form th:action="@{/quality/discipline}" method="post" class="row g-2">
+                        <div class="col-12"><select name="studentId" class="form-select form-select-sm" required>
+                            <option value="">选择学生</option>
+                            <option th:each="s : ${students}" th:value="${s.id}" th:text="${s.name} + '（' + ${s.studentNo} + '）'"></option>
+                        </select></div>
+                        <div class="col-5"><select name="type" class="form-select form-select-sm">
+                            <option>奖励</option><option>惩罚</option></select></div>
+                        <div class="col-7"><input type="date" name="eventDate" class="form-control form-control-sm" required></div>
+                        <div class="col-12"><input name="content" class="form-control form-control-sm" placeholder="内容，如：数学竞赛二等奖" required></div>
+                        <div class="col-12"><button class="btn btn-sm btn-primary">保存</button></div>
+                    </form>
+                </div></div></div>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="tabAct">
+            <div class="row g-3">
+                <div class="col-lg-8"><div class="card"><div class="card-body p-0">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr><th>学生</th><th>班级</th><th>类别</th><th>活动</th><th>日期</th><th></th></tr></thead>
+                        <tbody>
+                        <tr th:each="a : ${activities}">
+                            <td th:text="${a.studentName}"></td><td th:text="${a.className}"></td>
+                            <td><span class="badge bg-primary" th:text="${a.category}"></span></td>
+                            <td th:text="${a.name}"></td><td th:text="${a.eventDate}"></td>
+                            <td><a class="btn btn-sm btn-outline-danger py-0" th:href="@{'/quality/activity/delete/' + ${a.id}}">删</a></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(activities)}"><td colspan="6" class="text-center text-muted py-4">暂无记录</td></tr>
+                        </tbody>
+                    </table>
+                </div></div></div>
+                <div class="col-lg-4"><div class="card"><div class="card-body">
+                    <h6>新增活动</h6>
+                    <form th:action="@{/quality/activity}" method="post" class="row g-2">
+                        <div class="col-12"><select name="studentId" class="form-select form-select-sm" required>
+                            <option value="">选择学生</option>
+                            <option th:each="s : ${students}" th:value="${s.id}" th:text="${s.name} + '（' + ${s.studentNo} + '）'"></option>
+                        </select></div>
+                        <div class="col-5"><select name="category" class="form-select form-select-sm">
+                            <option>社团</option><option>志愿</option><option>体育</option><option>竞赛</option></select></div>
+                        <div class="col-7"><input type="date" name="eventDate" class="form-control form-control-sm" required></div>
+                        <div class="col-12"><input name="name" class="form-control form-control-sm" placeholder="活动名称" required></div>
+                        <div class="col-12"><button class="btn btn-sm btn-primary">保存</button></div>
+                    </form>
+                </div></div></div>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="tabRev">
+            <div class="row g-3">
+                <div class="col-lg-8"><div class="card"><div class="card-body p-0">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr><th>学生</th><th>班级</th><th>教师</th><th>学期</th><th>评语</th><th></th></tr></thead>
+                        <tbody>
+                        <tr th:each="r : ${reviews}">
+                            <td th:text="${r.studentName}"></td><td th:text="${r.className}"></td>
+                            <td th:text="${r.teacherName}"></td><td th:text="${r.term}"></td>
+                            <td th:text="${r.content}"></td>
+                            <td><a class="btn btn-sm btn-outline-danger py-0" th:href="@{'/quality/review/delete/' + ${r.id}}">删</a></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(reviews)}"><td colspan="6" class="text-center text-muted py-4">暂无记录</td></tr>
+                        </tbody>
+                    </table>
+                </div></div></div>
+                <div class="col-lg-4"><div class="card"><div class="card-body">
+                    <h6>新增评语</h6>
+                    <form th:action="@{/quality/review}" method="post" class="row g-2">
+                        <div class="col-12"><select name="studentId" class="form-select form-select-sm" required>
+                            <option value="">选择学生</option>
+                            <option th:each="s : ${students}" th:value="${s.id}" th:text="${s.name} + '（' + ${s.studentNo} + '）'"></option>
+                        </select></div>
+                        <div class="col-12"><input name="term" class="form-control form-control-sm" placeholder="学期，如 2025-2026学年第一学期" required></div>
+                        <div class="col-12"><textarea name="content" class="form-control form-control-sm" rows="3" placeholder="评语内容" required></textarea></div>
+                        <div class="col-12"><button class="btn btn-sm btn-primary">保存</button></div>
+                    </form>
+                </div></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>

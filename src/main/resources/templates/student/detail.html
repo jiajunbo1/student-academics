@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('学生档案详情')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav('student')}"></nav>
+<div class="container-fluid py-4 px-4">
+    <div class="row g-3">
+        <div class="col-lg-3">
+            <div class="card mb-3"><div class="card-body text-center">
+                <div class="avatar mx-auto mb-2" style="width:64px;height:64px;font-size:26px" th:text="${student.photo}"></div>
+                <h5 class="mb-0" th:text="${student.name}"></h5>
+                <div class="text-muted small mb-2" th:text="${student.studentNo} + ' · ' + ${student.className}"></div>
+                <span class="badge" th:classappend="${student.status=='在读'}?'bg-success':'bg-secondary'" th:text="${student.status}"></span>
+            </div></div>
+            <div class="card"><div class="card-body small">
+                <h6>基本信息</h6>
+                <table class="table table-sm mb-0">
+                    <tr><td class="text-muted">性别</td><td th:text="${student.gender}"></td></tr>
+                    <tr><td class="text-muted">出生日期</td><td th:text="${student.birthDate}"></td></tr>
+                    <tr><td class="text-muted">入学年份</td><td th:text="${student.enrollYear}"></td></tr>
+                    <tr><td class="text-muted">住址</td><td th:text="${student.address}"></td></tr>
+                    <tr><td class="text-muted">电话</td><td th:text="${student.phone}"></td></tr>
+                    <tr><td class="text-muted">家长</td><td th:text="${student.guardianName} + ' ' + ${student.guardianPhone}"></td></tr>
+                </table>
+                <a class="btn btn-sm btn-outline-secondary mt-2" th:href="@{'/student/edit/' + ${student.id}}">编辑档案</a>
+            </div></div>
+        </div>
+        <div class="col-lg-9">
+            <div class="card mb-3"><div class="card-body">
+                <h6>总分趋势</h6>
+                <canvas id="trendChart" height="90"></canvas>
+            </div></div>
+            <div class="card mb-3"><div class="card-body p-0">
+                <div class="p-3 pb-0"><h6>历次成绩</h6></div>
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>考试</th><th>科目</th><th>分数</th></tr></thead>
+                    <tbody>
+                    <tr th:each="v : ${scores}">
+                        <td th:text="${v.examName}"></td><td th:text="${v.subjectName}"></td>
+                        <td class="fw-semibold" th:text="${v.score}"></td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(scores)}"><td colspan="3" class="text-center text-muted py-3">暂无成绩记录</td></tr>
+                    </tbody>
+                </table>
+            </div></div>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="card h-100"><div class="card-body">
+                        <h6>奖惩记录</h6>
+                        <ul class="list-unstyled small mb-0">
+                            <li class="mb-1" th:each="d : ${disciplines}">
+                                <span class="badge" th:classappend="${d.type=='奖励'}?'bg-success':'bg-danger'" th:text="${d.type}"></span>
+                                <span th:text="${d.content} + '（' + ${d.eventDate} + '）'"></span>
+                            </li>
+                            <li class="text-muted" th:if="${#lists.isEmpty(disciplines)}">暂无</li>
+                        </ul>
+                    </div></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100"><div class="card-body">
+                        <h6>活动参与</h6>
+                        <ul class="list-unstyled small mb-0">
+                            <li class="mb-1" th:each="a : ${activities}">
+                                <span class="badge bg-primary" th:text="${a.category}"></span>
+                                <span th:text="${a.name} + '（' + ${a.eventDate} + '）'"></span>
+                            </li>
+                            <li class="text-muted" th:if="${#lists.isEmpty(activities)}">暂无</li>
+                        </ul>
+                    </div></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100"><div class="card-body">
+                        <h6>出勤记录</h6>
+                        <ul class="list-unstyled small mb-0">
+                            <li class="mb-1" th:each="a : ${attendances}">
+                                <span th:text="${a.attDate}"></span>
+                                <span class="badge" th:classappend="${a.status=='出勤'}?'bg-success':(${a.status=='缺勤'}?'bg-danger':'bg-warning text-dark')" th:text="${a.status}"></span>
+                                <span class="text-muted" th:if="${a.remark}" th:text="${a.remark}"></span>
+                            </li>
+                            <li class="text-muted" th:if="${#lists.isEmpty(attendances)}">暂无</li>
+                        </ul>
+                    </div></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100"><div class="card-body">
+                        <h6>教师评语</h6>
+                        <div class="small mb-2 border-start ps-2" style="border-color:#5b7cfa !important" th:each="r : ${reviews}">
+                            <div class="text-muted" th:text="${r.teacherName} + ' · ' + ${r.term}"></div>
+                            <div th:text="${r.content}"></div>
+                        </div>
+                        <div class="text-muted small" th:if="${#lists.isEmpty(reviews)}">暂无</div>
+                    </div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div th:replace="~{fragments/layout :: scripts}"></div>
+<script th:inline="javascript">
+    new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+            labels: /*[[${trendLabels}]]*/ [],
+            datasets: [{ label: '总分', data: /*[[${trendTotals}]]*/ [],
+                         borderColor: '#5b7cfa', backgroundColor: 'rgba(91,124,250,.15)', fill: true, tension: .3 }]
+        },
+        options: { plugins: { legend: { display: false } } }
+    });
+</script>
+</body>
+</html>

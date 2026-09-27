@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('首页看板')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav('dashboard')}"></nav>
+<div class="container-fluid py-4 px-4">
+    <div class="row g-3 mb-4">
+        <div class="col-md-3"><div class="stat-card bg-grad-1">
+            <div class="num" th:text="${studentCount}">0</div><div class="label">在册学生</div></div></div>
+        <div class="col-md-3"><div class="stat-card bg-grad-2">
+            <div class="num" th:text="${classCount}">0</div><div class="label">班级数</div></div></div>
+        <div class="col-md-3"><div class="stat-card bg-grad-3">
+            <div class="num" th:text="${teacherCount}">0</div><div class="label">教师账号</div></div></div>
+        <div class="col-md-3"><div class="stat-card bg-grad-4">
+            <div class="num" th:text="${examCount}">0</div><div class="label">考试批次</div></div></div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-body">
+                <h6 class="card-title">各科平均分
+                    <span class="text-muted fw-normal" th:if="${lastExam}" th:text="'· ' + ${lastExam.name}"></span>
+                </h6>
+                <canvas id="subjectChart" height="220"></canvas>
+            </div></div>
+        </div>
+        <div class="col-lg-3">
+            <div class="card h-100"><div class="card-body">
+                <h6 class="card-title">出勤统计</h6>
+                <canvas id="attChart" height="220"></canvas>
+            </div></div>
+        </div>
+        <div class="col-lg-3">
+            <div class="card h-100"><div class="card-body">
+                <h6 class="card-title">最新动态</h6>
+                <ul class="list-unstyled small mb-3">
+                    <li class="mb-2" th:each="d : ${recentDiscipline}">
+                        <span class="badge" th:classappend="${d.type=='奖励'}?'bg-success':'bg-danger'" th:text="${d.type}"></span>
+                        <span th:text="${d.studentName} + '：' + ${d.content}"></span>
+                    </li>
+                </ul>
+                <ul class="list-unstyled small mb-0">
+                    <li class="mb-2" th:each="a : ${recentActivity}">
+                        <span class="badge bg-primary" th:text="${a.category}"></span>
+                        <span th:text="${a.studentName} + ' · ' + ${a.name}"></span>
+                    </li>
+                </ul>
+            </div></div>
+        </div>
+    </div>
+</div>
+<div th:replace="~{fragments/layout :: scripts}"></div>
+<script th:inline="javascript">
+    const subjectNames = /*[[${subjectNames}]]*/ [];
+    const subjectAvgs = /*[[${subjectAvgs}]]*/ [];
+    const attStats = /*[[${attStats}]]*/ [];
+    new Chart(document.getElementById('subjectChart'), {
+        type: 'bar',
+        data: { labels: subjectNames,
+                datasets: [{ label: '平均分', data: subjectAvgs, backgroundColor: '#5b7cfa', borderRadius: 6 }] },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false } } }
+    });
+    new Chart(document.getElementById('attChart'), {
+        type: 'doughnut',
+        data: { labels: attStats.map(r => r.name),
+                datasets: [{ data: attStats.map(r => r.value),
+                             backgroundColor: ['#43b07a', '#f0ad4e', '#5bc0de', '#8e5bd8', '#d9534f'] }] }
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('班级管理')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav('clazz')}"></nav>
+<div class="container py-4">
+    <h5 class="mb-3">班级管理</h5>
+    <div class="card mb-3"><div class="card-body py-3">
+        <form class="row g-2 align-items-end" th:action="@{/clazz/save}" method="post">
+            <input type="hidden" name="id">
+            <div class="col-md-3"><label class="form-label small">班级名称</label>
+                <input name="name" class="form-control form-control-sm" placeholder="如 高一(4)班" required></div>
+            <div class="col-md-2"><label class="form-label small">年级</label>
+                <select name="grade" class="form-select form-select-sm">
+                    <option>高一</option><option>高二</option><option>高三</option>
+                </select></div>
+            <div class="col-md-3"><label class="form-label small">班主任</label>
+                <select name="headTeacherId" class="form-select form-select-sm">
+                    <option value="">未指定</option>
+                    <option th:each="t : ${teachers}" th:value="${t.id}" th:text="${t.realName}"></option>
+                </select></div>
+            <div class="col-md-2"><button class="btn btn-sm btn-primary">＋ 新增班级</button></div>
+        </form>
+    </div></div>
+    <div class="card"><div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead><tr><th>班级</th><th>年级</th><th>班主任</th><th>人数</th><th>操作</th></tr></thead>
+            <tbody>
+            <tr th:each="c : ${classes}">
+                <td class="fw-semibold" th:text="${c.name}"></td>
+                <td th:text="${c.grade}"></td>
+                <td th:text="${c.headTeacherName} ?: '未指定'"></td>
+                <td>
+                    <a th:href="@{/student(classId=${c.id})}" class="text-decoration-none">
+                        <span class="badge bg-primary" th:text="${c.studentCount} + ' 人'"></span></a>
+                </td>
+                <td>
+                    <a class="btn btn-sm btn-outline-danger" th:href="@{'/clazz/delete/' + ${c.id}}"
+                       onclick="return confirm('确认删除该班级？')">删除</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div></div>
+</div>
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>

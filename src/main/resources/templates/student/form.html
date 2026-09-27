@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('学生信息')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav('student')}"></nav>
+<div class="container py-4" style="max-width:860px">
+    <h5 class="mb-3" th:text="${student.id == null} ? '新增学生' : '编辑学生'"></h5>
+    <div class="card"><div class="card-body">
+        <form th:action="@{/student/save}" method="post" class="row g-3">
+            <input type="hidden" name="id" th:value="${student.id}">
+            <div class="col-md-4">
+                <label class="form-label">学号 *</label>
+                <input name="studentNo" class="form-control" required th:value="${student.studentNo}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">姓名 *</label>
+                <input name="name" class="form-control" required th:value="${student.name}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">性别 *</label>
+                <select name="gender" class="form-select" required>
+                    <option value="男" th:selected="${student.gender=='男'}">男</option>
+                    <option value="女" th:selected="${student.gender=='女'}">女</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">出生日期</label>
+                <input type="date" name="birthDate" class="form-control" th:value="${student.birthDate}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">班级 *</label>
+                <select name="classId" class="form-select" required>
+                    <option th:each="c : ${classes}" th:value="${c.id}" th:text="${c.name}"
+                            th:selected="${c.id==student.classId}"></option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">入学年份</label>
+                <input type="number" name="enrollYear" class="form-control" th:value="${student.enrollYear}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">家庭住址</label>
+                <input name="address" class="form-control" th:value="${student.address}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">联系电话</label>
+                <input name="phone" class="form-control" th:value="${student.phone}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">家长姓名</label>
+                <input name="guardianName" class="form-control" th:value="${student.guardianName}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">家长电话</label>
+                <input name="guardianPhone" class="form-control" th:value="${student.guardianPhone}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">学籍状态</label>
+                <select name="status" class="form-select">
+                    <option th:each="s : ${ {'在读','休学','转班','毕业'} }" th:value="${s}" th:text="${s}"
+                            th:selected="${s==student.status}"></option>
+                </select>
+            </div>
+            <div class="col-12">
+                <button class="btn btn-primary">保存</button>
+                <a class="btn btn-outline-secondary" th:href="@{/student}">返回</a>
+            </div>
+        </form>
+    </div></div>
+</div>
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# 构建产物与依赖
+target/
+*.class
+site/node_modules/
+site/dist/
+
+# 日志与临时文件
+app.log
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# 本地联调产生的临时数据
+dev/data/
+
+# 环境变量
+.env
+.env.*
+!.env.example

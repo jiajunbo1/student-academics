@@ -1,0 +1,18 @@
+body { background: #f4f6fb; }
+.navbar-brand { letter-spacing: 1px; }
+.card { border: none; box-shadow: 0 1px 4px rgba(40,60,110,.08); border-radius: 12px; }
+.stat-card { color: #fff; border-radius: 12px; padding: 18px 20px; }
+.stat-card .num { font-size: 30px; font-weight: 700; }
+.stat-card .label { opacity: .9; }
+.bg-grad-1 { background: linear-gradient(135deg,#5b7cfa,#2c3e6b); }
+.bg-grad-2 { background: linear-gradient(135deg,#43b07a,#1f7a4d); }
+.bg-grad-3 { background: linear-gradient(135deg,#f0844a,#d1531b); }
+.bg-grad-4 { background: linear-gradient(135deg,#8e5bd8,#5a2ea6); }
+.table thead th { background: #eef1f8; color: #33415c; font-weight: 600; }
+.avatar { width: 34px; height: 34px; border-radius: 50%; color: #fff; display: inline-flex;
+          align-items: center; justify-content: center; font-weight: 600; background: #5b7cfa; }
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+              background: linear-gradient(135deg,#2c3e6b,#5b7cfa); }
+.login-card { width: 380px; background: #fff; border-radius: 16px; padding: 34px; box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+.rank-badge { font-weight: 700; color: #2c3e6b; }
+a.back-link { text-decoration: none; }
