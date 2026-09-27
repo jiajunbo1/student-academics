@@ -1,4 +1,13 @@
-export interface Me { userId: string; name: string; role: 'ADMIN' | 'TEACHER'; }
+export interface Me {
+  id: string; username: string; displayName: string;
+  role: 'ADMIN' | 'TEACHER' | 'STUDENT';
+  studentId: string | null; status: string; mustChange: boolean;
+  lockedUntil: string | null; lastLoginAt: string | null; createdAt: string | null;
+}
+
+export interface AccountRow extends Me {
+  studentName: string; studentNo: string; className: string;
+}
 
 export interface ClassRow {
   id: string; name: string; grade: string; head_user_id: string | null;
@@ -57,4 +66,23 @@ export interface DashboardData {
   recentActivity: (ActivityRow & { studentName: string })[];
 }
 
-export interface UserRow { id: string; user_id: string; name: string; role: string; created_at: string; }
+export interface PortalRecord {
+  examId: string; examName: string; examDate: string; term: string;
+  cells: Record<string, number | null>; total: number; count: number;
+  avg: number; classAvg: number; rank: number | null; classSize: number;
+}
+
+export interface PortalData {
+  student: {
+    name: string; studentNo: string; gender: string;
+    enrollYear: number | null; status: string; className: string;
+  };
+  subjects: { id: string; name: string }[];
+  records: PortalRecord[];
+  attendances: AttendanceRow[];
+  attSummary: { name: string; value: number }[];
+  disciplines: DisciplineRow[];
+  discSummary: { name: string; value: number }[];
+  activities: ActivityRow[];
+  reviews: ReviewRow[];
+}
