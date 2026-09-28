@@ -11,14 +11,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { apiGet, apiPost, errorMessage } from "../api";
 import {
-  EmptyState, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  type SelectOption,
 } from "../components/app-ui";
 import type { StudentRow, ClassRow, ScoreRow, AttendanceRow, DisciplineRow, ActivityRow, ReviewRow, Subject, Exam } from "../types";
 
 const STATUSES = ["在读", "休学", "转班", "毕业"];
+const STATUS_OPTIONS: SelectOption[] = STATUSES.map((s) => ({ value: s, label: s }));
 
 interface FormState {
   id?: string; studentNo: string; name: string; gender: string; birthDate: string;
@@ -114,6 +115,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
 
   const subjectName = useMemo(() => new Map(refData.subjects.map((s) => [s.id, s.name])), [refData]);
   const examName = useMemo(() => new Map(refData.exams.map((e) => [e.id, e.name])), [refData]);
+  const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
 
   return (
     <div>
@@ -134,14 +136,8 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="姓名或学号" value={kw} onChange={(e) => setKw(e.target.value)} className="w-full pl-8 sm:w-52" />
         </div>
-        <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按班级筛选">
-          <NativeSelectOption value="">全部班级</NativeSelectOption>
-          {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-        </NativeSelect>
-        <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按状态筛选">
-          <NativeSelectOption value="">全部状态</NativeSelectOption>
-          {STATUSES.map((s) => <NativeSelectOption key={s} value={s}>{s}</NativeSelectOption>)}
-        </NativeSelect>
+        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
+        <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="全部状态" ariaLabel="按状态筛选" />
         {(kw || classId || status) && (
           <Button variant="ghost" size="sm" onClick={() => { setKw(""); setClassId(""); setStatus(""); }}>清除筛选</Button>
         )}
@@ -210,21 +206,15 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
               <Field label="学号 *"><Input value={editing.studentNo} onChange={(e) => setEditing({ ...editing, studentNo: e.target.value })} /></Field>
               <Field label="姓名 *"><Input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
               <Field label="性别">
-                <NativeSelect value={editing.gender} onChange={(e) => setEditing({ ...editing, gender: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm">
-                  <NativeSelectOption value="男">男</NativeSelectOption><NativeSelectOption value="女">女</NativeSelectOption>
-                </NativeSelect>
+                <FilterSelect value={editing.gender} onChange={(v) => setEditing({ ...editing, gender: v })} options={[{ value: "男", label: "男" }, { value: "女", label: "女" }]} ariaLabel="性别" className="w-full min-w-0" />
               </Field>
               <Field label="出生日期"><Input type="date" value={editing.birthDate} onChange={(e) => setEditing({ ...editing, birthDate: e.target.value })} /></Field>
               <Field label="班级 *">
-                <NativeSelect value={editing.classId} onChange={(e) => setEditing({ ...editing, classId: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm">
-                  {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-                </NativeSelect>
+                <FilterSelect value={editing.classId} onChange={(v) => setEditing({ ...editing, classId: v })} options={classOptions} ariaLabel="所属班级" className="w-full min-w-0" />
               </Field>
               <Field label="入学年份"><Input inputMode="numeric" placeholder="如 2024" value={editing.enrollYear} onChange={(e) => setEditing({ ...editing, enrollYear: e.target.value })} /></Field>
               <Field label="状态">
-                <NativeSelect value={editing.status} onChange={(e) => setEditing({ ...editing, status: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm">
-                  {STATUSES.map((s) => <NativeSelectOption key={s} value={s}>{s}</NativeSelectOption>)}
-                </NativeSelect>
+                <FilterSelect value={editing.status} onChange={(v) => setEditing({ ...editing, status: v })} options={STATUS_OPTIONS} ariaLabel="学籍状态" className="w-full min-w-0" />
               </Field>
               <Field label="联系电话"><Input value={editing.phone} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} /></Field>
               <Field label="家长姓名"><Input value={editing.guardianName} onChange={(e) => setEditing({ ...editing, guardianName: e.target.value })} /></Field>

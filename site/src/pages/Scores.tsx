@@ -6,12 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
-import { EmptyState, PageHeader, Panel, Pill, ScoreText, TableSkeleton, Toolbar } from "../components/app-ui";
+import { EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, type SelectOption, TableSkeleton, Toolbar } from "../components/app-ui";
 import type { ClassRow, Exam, SheetRow, StudentRow, Subject } from "../types";
 
 export default function Scores({ isAdmin }: { isAdmin: boolean }) {
@@ -94,6 +93,9 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
 
   const exam = exams.find((e) => e.id === examId);
   const subject = subjects.find((s) => s.id === subjectId);
+  const examOptions = useMemo<SelectOption[]>(() => exams.map((e) => ({ value: e.id, label: e.name })), [exams]);
+  const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
+  const subjectOptions = useMemo<SelectOption[]>(() => subjects.map((s) => ({ value: s.id, label: s.name })), [subjects]);
   const filledCount = useMemo(() => {
     if (!sheet) return 0;
     return sheet.rows.filter((r) => sheet.subjects.some((s) => r.cells[s.id] != null)).length;
@@ -106,13 +108,8 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       </PageHeader>
 
       <Toolbar>
-        <NativeSelect value={examId} onChange={(e) => setExamId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="选择考试">
-          {exams.map((e) => <NativeSelectOption key={e.id} value={e.id}>{e.name}</NativeSelectOption>)}
-        </NativeSelect>
-        <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按班级筛选">
-          <NativeSelectOption value="">全部班级</NativeSelectOption>
-          {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-        </NativeSelect>
+        <FilterSelect value={examId} onChange={setExamId} options={examOptions} ariaLabel="选择考试" />
+        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
         {sheet ? <Pill tone="info">已录 {filledCount} / {sheet.rows.length} 人</Pill> : null}
       </Toolbar>
 
@@ -176,9 +173,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
           <Card className="border shadow-soft">
             <CardContent className="flex flex-wrap items-center gap-2 p-3 md:p-4">
               <span className="text-sm text-muted-foreground">录入科目</span>
-              <NativeSelect value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="选择录入科目">
-                {subjects.map((s) => <NativeSelectOption key={s.id} value={s.id}>{s.name}</NativeSelectOption>)}
-              </NativeSelect>
+              <FilterSelect value={subjectId} onChange={setSubjectId} options={subjectOptions} ariaLabel="选择录入科目" />
               <span className="text-xs text-muted-foreground">满分 150，支持 0.5 分粒度；清空并保存即删除该成绩</span>
               <Button size="sm" className="ml-auto w-full sm:w-auto" disabled={saving || !students.length} onClick={() => void saveAll()}>
                 {saving ? "保存中…" : `保存 ${subject?.name ?? ""} 成绩`}

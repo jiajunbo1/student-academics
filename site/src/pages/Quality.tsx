@@ -7,9 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { apiGet, apiPost, errorMessage } from "../api";
-import { EmptyState, PageHeader, Panel, Pill, Toolbar } from "../components/app-ui";
+import { EmptyState, EntityPicker, FilterSelect, PageHeader, Panel, Pill, Toolbar, type SelectOption } from "../components/app-ui";
 import type { ActivityRow, ClassRow, DisciplineRow, ReviewRow, StudentRow } from "../types";
 
 const today = () => {
@@ -57,22 +56,15 @@ export default function Quality() {
     finally { setBusy(false); }
   };
 
-  const studentOptions = (
-    <>
-      <NativeSelectOption value="">选择学生 *</NativeSelectOption>
-      {students.map((s) => <NativeSelectOption key={s.id} value={s.id}>{s.name}（{s.student_no}）</NativeSelectOption>)}
-    </>
-  );
+  const studentOptions: SelectOption[] = students.map((s) => ({ value: s.id, label: `${s.name}（${s.student_no}）` }));
+  const classOptions: SelectOption[] = classes.map((c) => ({ value: c.id, label: c.name }));
 
   return (
     <div>
       <PageHeader title="素质发展" description="记录奖惩、活动参与与教师评语，形成学生的成长档案。" />
 
       <Toolbar>
-        <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按班级筛选">
-          <NativeSelectOption value="">全部班级</NativeSelectOption>
-          {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-        </NativeSelect>
+        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
         <span className="text-sm text-muted-foreground">
           {data.disciplines.length} 条奖惩 · {data.activities.length} 条活动 · {data.reviews.length} 条评语
         </span>
@@ -89,15 +81,13 @@ export default function Quality() {
           <Panel title="新增奖惩">
             <div className="flex flex-wrap items-end gap-2">
               <div><Label className="mb-1 block text-xs text-muted-foreground">学生 *</Label>
-                <NativeSelect value={dForm.studentId} onChange={(e) => setDForm({ ...dForm, studentId: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm sm:w-44">{studentOptions}</NativeSelect></div>
+                <EntityPicker value={dForm.studentId} onChange={(v) => setDForm({ ...dForm, studentId: v })} options={studentOptions} placeholder="搜索姓名或学号" className="w-full sm:w-52" /></div>
               <div><Label className="mb-1 block text-xs text-muted-foreground">类型</Label>
-                <NativeSelect value={dForm.type} onChange={(e) => setDForm({ ...dForm, type: e.target.value })} className="h-9 rounded-lg border bg-background px-2 text-sm">
-                  <NativeSelectOption value="奖励">奖励</NativeSelectOption><NativeSelectOption value="惩罚">惩罚</NativeSelectOption>
-                </NativeSelect></div>
+                <FilterSelect value={dForm.type} onChange={(v) => setDForm({ ...dForm, type: v })} options={[{ value: "奖励", label: "奖励" }, { value: "惩罚", label: "惩罚" }]} ariaLabel="奖惩类型" /></div>
               <div className="min-w-0 flex-1 basis-full sm:basis-48"><Label className="mb-1 block text-xs text-muted-foreground">内容 *</Label>
                 <Input value={dForm.content} onChange={(e) => setDForm({ ...dForm, content: e.target.value })} placeholder="如：校级数学竞赛二等奖" /></div>
               <div className="basis-full sm:basis-auto"><Label className="mb-1 block text-xs text-muted-foreground">日期</Label>
-                <Input type="date" value={dForm.eventDate} onChange={(e) => setDForm({ ...dForm, eventDate: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-3 text-sm sm:w-40" /></div>
+                <Input type="date" value={dForm.eventDate} onChange={(e) => setDForm({ ...dForm, eventDate: e.target.value })} className="w-full sm:w-40" /></div>
               <Button disabled={busy} onClick={() => { if (!dForm.studentId || !dForm.content) { toast.error("请选择学生并填写内容"); return; } void run("discipline.save", dForm, "奖惩已记录"); setDForm({ ...dForm, content: "" }); }}>
                 <Plus /> 添加
               </Button>
@@ -129,15 +119,13 @@ export default function Quality() {
           <Panel title="新增活动">
             <div className="flex flex-wrap items-end gap-2">
               <div><Label className="mb-1 block text-xs text-muted-foreground">学生 *</Label>
-                <NativeSelect value={aForm.studentId} onChange={(e) => setAForm({ ...aForm, studentId: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm sm:w-44">{studentOptions}</NativeSelect></div>
+                <EntityPicker value={aForm.studentId} onChange={(v) => setAForm({ ...aForm, studentId: v })} options={studentOptions} placeholder="搜索姓名或学号" className="w-full sm:w-52" /></div>
               <div><Label className="mb-1 block text-xs text-muted-foreground">类别</Label>
-                <NativeSelect value={aForm.category} onChange={(e) => setAForm({ ...aForm, category: e.target.value })} className="h-9 rounded-lg border bg-background px-2 text-sm">
-                  {["社团", "志愿", "体育", "竞赛"].map((c) => <NativeSelectOption key={c} value={c}>{c}</NativeSelectOption>)}
-                </NativeSelect></div>
+                <FilterSelect value={aForm.category} onChange={(v) => setAForm({ ...aForm, category: v })} options={["社团", "志愿", "体育", "竞赛"].map((c) => ({ value: c, label: c }))} ariaLabel="活动类别" /></div>
               <div className="min-w-0 flex-1 basis-full sm:basis-48"><Label className="mb-1 block text-xs text-muted-foreground">活动名称 *</Label>
                 <Input value={aForm.name} onChange={(e) => setAForm({ ...aForm, name: e.target.value })} placeholder="如：校园篮球联赛" /></div>
               <div className="basis-full sm:basis-auto"><Label className="mb-1 block text-xs text-muted-foreground">日期</Label>
-                <Input type="date" value={aForm.eventDate} onChange={(e) => setAForm({ ...aForm, eventDate: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-3 text-sm sm:w-40" /></div>
+                <Input type="date" value={aForm.eventDate} onChange={(e) => setAForm({ ...aForm, eventDate: e.target.value })} className="w-full sm:w-40" /></div>
               <Button disabled={busy} onClick={() => { if (!aForm.studentId || !aForm.name) { toast.error("请选择学生并填写活动名称"); return; } void run("activity.save", aForm, "活动已记录"); setAForm({ ...aForm, name: "" }); }}>
                 <Plus /> 添加
               </Button>
@@ -167,7 +155,7 @@ export default function Quality() {
           <Panel title="撰写评语" description="署名自动取当前登录教师">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
-                <NativeSelect value={rForm.studentId} onChange={(e) => setRForm({ ...rForm, studentId: e.target.value })} className="h-9 w-full rounded-lg border bg-background px-2 text-sm sm:w-44">{studentOptions}</NativeSelect>
+                <EntityPicker value={rForm.studentId} onChange={(v) => setRForm({ ...rForm, studentId: v })} options={studentOptions} placeholder="搜索姓名或学号" className="w-full sm:w-52" />
                 <Input value={rForm.term} onChange={(e) => setRForm({ ...rForm, term: e.target.value })} placeholder="学期" className="h-9 w-full sm:w-52" />
               </div>
               <Textarea value={rForm.content} onChange={(e) => setRForm({ ...rForm, content: e.target.value })} placeholder="评语内容…" rows={3} />

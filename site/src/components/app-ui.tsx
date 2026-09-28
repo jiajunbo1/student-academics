@@ -14,6 +14,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { useTheme, type ThemeMode } from "../theme";
 
 export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
@@ -253,5 +268,88 @@ export function EmptyState({
 export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn("mb-4 flex flex-wrap items-center gap-2", className)}>{children}</div>
+  );
+}
+
+export type SelectOption = { value: string; label: string };
+
+/** Radix Select 的选项值不能为空串，用哨兵承载"全部"这类空值。 */
+const ALL_SENTINEL = "\u0000__all";
+
+export function FilterSelect({
+  value,
+  onChange,
+  options,
+  allLabel,
+  ariaLabel,
+  className,
+  disabled,
+  size = "default",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  allLabel?: string;
+  ariaLabel?: string;
+  className?: string;
+  disabled?: boolean;
+  size?: "sm" | "default";
+}) {
+  const items = allLabel ? [{ value: ALL_SENTINEL, label: allLabel }, ...options] : options;
+  return (
+    <Select
+      value={allLabel && value === "" ? ALL_SENTINEL : value}
+      onValueChange={(v) => onChange(v === ALL_SENTINEL ? "" : v)}
+      disabled={disabled}
+    >
+      <SelectTrigger size={size} aria-label={ariaLabel} className={cn("w-auto min-w-32", className)}>
+        <SelectValue placeholder={allLabel ?? "请选择"} />
+      </SelectTrigger>
+      <SelectContent position="popper" align="start">
+        {items.map((option) => (
+          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function EntityPicker({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className,
+  emptyText = "没有匹配项",
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  placeholder?: string;
+  className?: string;
+  emptyText?: string;
+  disabled?: boolean;
+}) {
+  const selected = options.find((option) => option.value === value) ?? null;
+  return (
+    <Combobox
+      items={options}
+      value={selected}
+      onValueChange={(next) => onChange(next?.value ?? "")}
+      isItemEqualToValue={(a, b) => a?.value === b?.value}
+      itemToStringLabel={(item) => item?.label ?? ""}
+      disabled={disabled}
+    >
+      <ComboboxInput placeholder={placeholder} className={className} showClear={!disabled} />
+      <ComboboxContent>
+        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxList>
+          {(item: SelectOption) => (
+            <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }

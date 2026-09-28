@@ -5,13 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
 import {
-  ATTENDANCE_TONE, EmptyState, PageHeader, Panel, Pill, TableSkeleton, TONE_CLASS, Toolbar,
+  ATTENDANCE_TONE, EmptyState, FilterSelect, PageHeader, Panel, Pill, type SelectOption, TableSkeleton, TONE_CLASS, Toolbar,
 } from "../components/app-ui";
 import type { AttendanceRow, ClassRow, StudentRow } from "../types";
 
@@ -83,6 +82,7 @@ export default function Attendance() {
 
   const counts = ATT_STATUS.map((name) => ({ name, n: students.filter((s) => draft[s.id] === name).length }));
   const marked = useMemo(() => students.filter((s) => draft[s.id]).length, [students, draft]);
+  const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
 
   return (
     <div>
@@ -95,11 +95,8 @@ export default function Attendance() {
         <TabsContent value="checkin" className="mt-4 space-y-4">
           <Card className="border shadow-soft">
             <CardContent className="flex flex-wrap items-center gap-2 p-3 md:p-4">
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 w-40 rounded-lg border bg-background px-3 text-sm" aria-label="签到日期" />
-              <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按班级筛选">
-                <NativeSelectOption value="">全部班级</NativeSelectOption>
-                {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-              </NativeSelect>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" aria-label="签到日期" />
+              <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
               <div className="flex flex-wrap gap-1.5">
                 {counts.map((c) => (
                   <Pill key={c.name} tone={ATTENDANCE_TONE[c.name] ?? "info"}>
@@ -152,12 +149,9 @@ export default function Attendance() {
         </TabsContent>
         <TabsContent value="history" className="mt-4">
           <Toolbar>
-            <Input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="h-9 w-40 rounded-lg border bg-background px-3 text-sm" aria-label="按日期筛选" />
+            <Input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-40" aria-label="按日期筛选" />
             {filterDate && <Button size="sm" variant="ghost" onClick={() => setFilterDate("")}>清除日期</Button>}
-            <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="按班级筛选">
-              <NativeSelectOption value="">全部班级</NativeSelectOption>
-              {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-            </NativeSelect>
+            <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
             <span className="ml-auto text-sm text-muted-foreground">{records.length} 条记录</span>
           </Toolbar>
           <Panel title="历史出勤" description="最多显示最近 200 条" contentClassName="p-3 md:p-0">

@@ -9,18 +9,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
-import { EmptyState, PageHeader, Panel, Pill } from "../components/app-ui";
+import { EmptyState, FilterSelect, PageHeader, Panel, Pill, type SelectOption } from "../components/app-ui";
 import { ChangePasswordForm } from "../components/auth-screens";
 import type { AccountRow, ClassRow, Me } from "../types";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "管理员", TEACHER: "教师", STUDENT: "学生" };
 const ROLE_TONE: Record<string, "primary" | "info" | "success"> = { ADMIN: "primary", TEACHER: "info", STUDENT: "success" };
+
+const GRADE_OPTIONS: SelectOption[] = ["高一", "高二", "高三"].map((g) => ({ value: g, label: g }));
+const STAFF_ROLE_OPTIONS: SelectOption[] = [
+  { value: "TEACHER", label: "教师" },
+  { value: "ADMIN", label: "管理员" },
+];
+const ACCOUNT_ROLE_OPTIONS: SelectOption[] = [
+  { value: "TEACHER", label: "教师" },
+  { value: "ADMIN", label: "管理员" },
+  { value: "STUDENT", label: "学生" },
+];
 
 export default function SettingsPage({ isAdmin, me, onMeChanged }: {
   isAdmin: boolean; me: Me | null; onMeChanged: (next: Me) => void;
@@ -87,9 +97,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
         {isAdmin && (
           <div className="flex flex-wrap gap-2">
             <Input placeholder="班级名，如 高一(4)班" value={newClass.name} onChange={(e) => setNewClass({ ...newClass, name: e.target.value })} className="h-9 w-full sm:w-52" />
-            <NativeSelect value={newClass.grade} onChange={(e) => setNewClass({ ...newClass, grade: e.target.value })} className="h-9 rounded-lg border bg-background px-2 text-sm" aria-label="年级">
-              {["高一", "高二", "高三"].map((g) => <NativeSelectOption key={g} value={g}>{g}</NativeSelectOption>)}
-            </NativeSelect>
+            <FilterSelect value={newClass.grade} onChange={(v) => setNewClass({ ...newClass, grade: v })} options={GRADE_OPTIONS} ariaLabel="年级" />
             <Button size="sm" disabled={busy} onClick={() => { if (!newClass.name) { toast.error("请填写班级名"); return; } void run("classes.save", newClass, "班级已创建"); setNewClass({ ...newClass, name: "" }); }}>
               <Plus /> 新建班级
             </Button>
@@ -147,11 +155,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">角色</Label>
-                <NativeSelect value={staff.role} className="h-9 rounded-lg border bg-background px-2 text-sm"
-                  onChange={(e) => setStaff({ ...staff, role: e.target.value })}>
-                  <NativeSelectOption value="TEACHER">教师</NativeSelectOption>
-                  <NativeSelectOption value="ADMIN">管理员</NativeSelectOption>
-                </NativeSelect>
+                <FilterSelect value={staff.role} onChange={(v) => setStaff({ ...staff, role: v })} options={STAFF_ROLE_OPTIONS} ariaLabel="新建账号角色" className="w-32" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="new-pw" className="text-xs text-muted-foreground">初始密码</Label>
@@ -164,11 +168,8 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
             <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-muted/40 p-3">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">范围</Label>
-                <NativeSelect value={seedForm.classId} className="h-9 rounded-lg border bg-background px-2 text-sm"
-                  onChange={(e) => setSeedForm({ ...seedForm, classId: e.target.value })}>
-                  <NativeSelectOption value="">全部班级</NativeSelectOption>
-                  {classes.map((c) => <NativeSelectOption key={c.id} value={c.id}>{c.name}</NativeSelectOption>)}
-                </NativeSelect>
+                <FilterSelect value={seedForm.classId} onChange={(v) => setSeedForm({ ...seedForm, classId: v })}
+                  options={classes.map((c) => ({ value: c.id, label: c.name }))} allLabel="全部班级" ariaLabel="开通范围" className="w-40" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="seed-pw" className="text-xs text-muted-foreground">学生初始密码</Label>
@@ -212,14 +213,11 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                           {a.id === me?.id ? (
                             <Pill tone={ROLE_TONE[a.role]}>{ROLE_LABEL[a.role]}</Pill>
                           ) : (
-                            <NativeSelect value={a.role} className="h-8 rounded-lg border bg-background px-2 text-sm" aria-label={`${a.username} 的角色`}
-                              onChange={(e) => void run("accounts.save", {
-                                id: a.id, username: a.username, displayName: a.displayName, role: e.target.value, studentId: a.studentId,
-                              }, "角色已更新")}>
-                              <NativeSelectOption value="TEACHER">教师</NativeSelectOption>
-                              <NativeSelectOption value="ADMIN">管理员</NativeSelectOption>
-                              <NativeSelectOption value="STUDENT">学生</NativeSelectOption>
-                            </NativeSelect>
+                            <FilterSelect value={a.role} size="sm" ariaLabel={`${a.username} 的角色`} className="w-28"
+                              options={ACCOUNT_ROLE_OPTIONS} disabled={busy}
+                              onChange={(v) => void run("accounts.save", {
+                                id: a.id, username: a.username, displayName: a.displayName, role: v, studentId: a.studentId,
+                              }, "角色已更新")} />
                           )}
                         </TableCell>
                         <TableCell data-label="关联学生" className="text-xs">
