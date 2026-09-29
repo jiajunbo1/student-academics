@@ -74,4 +74,43 @@ export interface PortalData {
   };
   subjects: { id: string; name: string }[];
   records: PortalRecord[];
+  recitations: PortalDailyItem[];
+  homeworks: PortalDailyItem[];
+}
+
+// ---------- 日常登记（背诵 / 作业）----------
+export type DailyKind = 'recitation' | 'homework';
+
+export interface DailyListRow {
+  id: string; classId: string; className: string;
+  subjectId: string; subjectName: string;
+  title: string; part: string; assignDate: string; dueDate: string; note: string;
+  total: number; counts: Record<string, number>; passCount: number; canDelete: boolean;
+}
+
+export interface DailyRecord {
+  status: string; attempt: number; checkDate: string; planDate: string;
+  note: string; recordedByName: string;
+}
+
+export interface DailySheet {
+  kind: DailyKind;
+  list: DailyListRow;
+  rows: { studentId: string; studentNo: string; name: string; status: string; record: DailyRecord | null }[];
+  statuses: string[]; pass: string;
+  hasPart: boolean; hasAttempt: boolean; hasPlan: boolean;
+}
+
+export interface DailyGrid {
+  kind: DailyKind; className: string;
+  lists: { id: string; title: string; part: string; assignDate: string }[];
+  rows: { studentId: string; studentNo: string; name: string; cells: Record<string, string | null> }[];
+  statuses: string[]; pass: string;
+}
+
+/** 学生端：本人的单次背诵 / 作业记录 */
+export interface PortalDailyItem {
+  title: string; part: string; status: string; attempt: number;
+  assignDate: string; dueDate: string; checkDate: string; planDate: string;
+  note: string; subjectName: string;
 }

@@ -1,0 +1,708 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { CheckCheck, FileUp, Inbox, ListChecks, Pencil, Plus, Table2, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import { apiGet, apiPost, errorMessage } from "../api";
+import { ImportDialog, type ImportResult } from "../components/import-export";
+import {
+  ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
+  TableSkeleton, Toolbar, useMarkColors, type SelectOption, type Tone,
+} from "../components/app-ui";
+import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, Subject } from "../types";
+
+/** 两类登记共用同一套界面，只差文案与后端下发的字段开关 */
+const META: Record<DailyKind, {
+  nav: string; listNoun: string; titleField: string; titleHint: string;
+  checkNoun: string; doneLabel: string; emptyTitle: string; emptyHint: string;
+}> = {
+  recitation: {
+    nav: "背诵登记", listNoun: "背诵清单", titleField: "篇目", titleHint: "如《岳阳楼记》",
+    checkNoun: "检查日期", doneLabel: "已过关",
+    emptyTitle: "还没有背诵清单",
+    emptyHint: "先定一篇要背的课文，再按学生逐个登记过关情况。",
+  },
+  homework: {
+    nav: "作业记录", listNoun: "作业清单", titleField: "作业内容", titleHint: "如 第 3 课课后练习",
+    checkNoun: "批改日期", doneLabel: "已交",
+    emptyTitle: "还没有作业清单",
+    emptyHint: "记录一次作业的完成情况，可导入课代表统计好的结果。",
+  },
+};
+
+const STATUS_TONE: Record<string, Tone> = {
+  过关: "success", 已交: "success", 优秀: "primary",
+  待重背: "warning", 补交: "warning", 延背: "info", 免背: "info",
+  未交: "danger", 需订正: "danger",
+};
+export const toneOf = (status: string): Tone => STATUS_TONE[status] ?? "info";
+/** 视为「已结清」的状态：进度条、待完成人数与总览里的「待补」都按这个口径 */
+export const SETTLED: Record<DailyKind, string[]> = {
+  recitation: ["过关", "免背"],
+  homework: ["已交", "优秀"],
+};
+const today = () => new Date().toISOString().slice(0, 10);
+
+export default function Daily() {
+  const [classes, setClasses] = useState<ClassRow[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [c, r] = await Promise.all([
+          apiGet<{ classes: ClassRow[] }>("classes.list"),
+          apiGet<{ subjects: Subject[] }>("refdata"),
+        ]);
+        setClasses(c.classes); setSubjects(r.subjects);
+      } catch (e) { toast.error(errorMessage(e)); }
+    })();
+  }, []);
+
+  return (
+    <div>
+      <PageHeader title="日常记录" description="背诵逐人过关、作业逐人完成；一份清单可同发多个班，登记随时改。" />
+      {!classes.length || !subjects.length ? (
+        <Panel className="mt-4">
+          <EmptyState icon={Inbox} title="还没有可用的班级或科目"
+            description="请先在「系统设置」创建班级，并为教师账号开通任教科目与班级。" />
+        </Panel>
+      ) : (
+        <Tabs defaultValue="recitation" className="mt-4">
+          <TabsList>
+            <TabsTrigger value="recitation">{META.recitation.nav}</TabsTrigger>
+            <TabsTrigger value="homework">{META.homework.nav}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="recitation" className="mt-4">
+            <DailyKindView kind="recitation" classes={classes} subjects={subjects} />
+          </TabsContent>
+          <TabsContent value="homework" className="mt-4">
+            <DailyKindView kind="homework" classes={classes} subjects={subjects} />
+          </TabsContent>
+        </Tabs>
+      )}
+    </div>
+  );
+}
+
+function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: ClassRow[]; subjects: Subject[] }) {
+  const meta = META[kind];
+  const [classId, setClassId] = useState("");
+  const [lists, setLists] = useState<DailyListRow[] | null>(null);
+  const [sheetId, setSheetId] = useState("");
+  const [editing, setEditing] = useState<DailyListRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<DailyListRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [gridRev, setGridRev] = useState(0);
+
+  const load = useCallback(async () => {
+    try { setLists((await apiGet<{ lists: DailyListRow[] }>(`${kind}.list`, { classId })).lists); }
+    catch (e) { toast.error(errorMessage(e)); }
+  }, [kind, classId]);
+  useEffect(() => { void load(); }, [load]);
+
+  /** 任何写入后同时刷新清单表和登记总览 */
+  const refresh = useCallback(async () => {
+    await load();
+    setGridRev((n) => n + 1);
+  }, [load]);
+
+  const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
+  const classNames = useMemo(() => (lists ?? []).map((l) => l.className), [lists]);
+  const colorOf = useMarkColors(classNames);
+  const settledOf = (l: DailyListRow) => SETTLED[kind].reduce((n, s) => n + (l.counts[s] ?? 0), 0);
+  const stat = useMemo(() => {
+    const ls = lists ?? [];
+    return {
+      open: ls.length,
+      pending: ls.reduce((n, l) => n + Math.max(l.total - settledOf(l), 0), 0),
+      done: ls.reduce((n, l) => n + l.passCount, 0),
+    };
+  }, [lists, kind]);
+
+  // 「全部任教班级」时总览默认取第一份清单的班；清单增删后保持原来那个班，不要跳走
+  const lastGridClass = useRef("");
+  const gridClassId = useMemo(() => {
+    if (classId) { lastGridClass.current = classId; return classId; }
+    const ls = lists ?? [];
+    const kept = ls.some((l) => l.classId === lastGridClass.current) ? lastGridClass.current : (ls[0]?.classId ?? "");
+    lastGridClass.current = kept;
+    return kept;
+  }, [classId, lists]);
+
+  const remove = async () => {
+    if (!deleting) return;    setBusy(true);
+    try {
+      await apiPost(`${kind}.save`, { id: deleting.id, delete: true });
+      toast.success(`${meta.listNoun}已删除`);
+      setDeleting(null);
+      void refresh();
+    } catch (e) { toast.error(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Toolbar>
+        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部任教班级" ariaLabel="按班级筛选" />
+        <Pill tone="info">进行中 {stat.open} 份</Pill>
+        <Pill tone={stat.pending ? "warning" : "success"}>待完成 {stat.pending} 人次</Pill>
+        <Pill tone="success">{meta.doneLabel} {stat.done} 人次</Pill>
+        <Button className="ml-auto w-full sm:w-auto" onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>
+      </Toolbar>
+
+      <Panel title={meta.listNoun} description="点一行进入名单登记，进度按本班在读人数计" contentClassName="p-3 md:p-0">
+        {!lists ? (
+          <TableSkeleton rows={4} cols={5} />
+        ) : !lists.length ? (
+          <EmptyState icon={ListChecks} title={meta.emptyTitle} description={meta.emptyHint}
+            action={<Button onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>} />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table className="responsive-table data-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{meta.titleField}</TableHead>
+                  <TableHead>班级</TableHead>
+                  <TableHead>科目</TableHead>
+                  <TableHead>布置 / 截止</TableHead>
+                  <TableHead className="w-44">登记进度</TableHead>
+                  <TableHead className="sticky right-0 z-10 bg-card w-28 text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lists.map((l) => (
+                  <TableRow key={l.id} className="cursor-pointer" onClick={() => setSheetId(l.id)}>
+                    <TableCell data-label={meta.titleField}>
+                      <span className="flex items-center gap-2">
+                        <ClassMark name={l.title} color={colorOf(l.className)} />
+                        <span className="min-w-0">
+                          <span className="block font-medium">{l.title}</span>
+                          {l.part ? <span className="block truncate text-xs text-muted-foreground">{l.part}</span> : null}
+                          {l.note ? <span className="block truncate text-[11px] text-muted-foreground">{l.note}</span> : null}
+                        </span>
+                      </span>
+                    </TableCell>
+                    <TableCell data-label="班级">
+                      <span className="flex items-center gap-1.5"><ClassDot color={colorOf(l.className)} />{l.className}</span>
+                    </TableCell>
+                    <TableCell data-label="科目" className="text-muted-foreground">{l.subjectName}</TableCell>
+                    <TableCell data-label="布置 / 截止" className="text-xs tabular-nums text-muted-foreground">
+                      <span className="block">{l.assignDate}</span>
+                      {l.dueDate ? <span className="block text-warning">截止 {l.dueDate}</span> : null}
+                    </TableCell>
+                    <TableCell data-label="登记进度">
+                      <ProgressBar done={settledOf(l)} total={l.total} />
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(l.counts).map(([status, n]) => (
+                          <Pill key={status} tone={toneOf(status)}>{status} {n}</Pill>
+                        ))}
+                        {!Object.keys(l.counts).length ? <span className="text-xs text-muted-foreground">尚未登记</span> : null}
+                      </div>
+                    </TableCell>
+                    <TableCell data-label="操作" className="sticky right-0 z-10 bg-card text-right whitespace-nowrap">
+                      <Button size="xs" variant="ghost" title="进入名单登记" aria-label={`${l.title}：进入名单登记`}
+                        onClick={(e) => { e.stopPropagation(); setSheetId(l.id); }}>
+                        <CheckCheck />
+                      </Button>
+                      <Button size="xs" variant="ghost" className="text-muted-foreground" disabled={!l.canDelete} aria-label="修改清单"
+                        onClick={(e) => { e.stopPropagation(); setEditing(l); }}><Pencil /></Button>
+                      <Button size="xs" variant="ghost" className="text-destructive" disabled={!l.canDelete} aria-label="删除清单"
+                        onClick={(e) => { e.stopPropagation(); setDeleting(l); }}><Trash2 /></Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Panel>
+
+      <GridPanel kind={kind} classes={classes} classId={gridClassId} rev={gridRev} />
+
+      <ListFormDialog kind={kind} open={creating || !!editing} initial={editing} subjects={subjects} classes={classes}
+        onClose={() => { setCreating(false); setEditing(null); }} onSaved={() => void refresh()} />
+      <SheetDialog kind={kind} listId={sheetId} onClose={() => setSheetId("")} onChanged={() => void refresh()} />
+
+      <ConfirmDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}
+        title={`删除${meta.listNoun}`} busy={busy} confirmLabel="确认删除"
+        description={`「${deleting?.title ?? ""}」（${deleting?.className ?? ""}）及其全部登记记录会被删除，且无法恢复。`}
+        onConfirm={() => void remove()} />
+    </div>
+  );
+}
+
+function ProgressBar({ done, total }: { done: number; total: number }) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+        <span className={cn("block h-full rounded-full transition-all", pct >= 100 ? "bg-success" : "brand-band")}
+          style={{ width: `${pct}%` }} />
+      </span>
+      <span className="text-xs tabular-nums text-muted-foreground">{done} / {total}</span>
+    </div>
+  );
+}
+
+/** 登记总览：行=学生，列=最近的若干份清单，格子=当次状态 */
+function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: ClassRow[]; classId: string; rev: number }) {
+  const meta = META[kind];
+  const [days, setDays] = useState("7");
+  const [data, setData] = useState<DailyGrid | null>(null);
+  const [error, setError] = useState("");
+  const scopeRef = useRef("");
+
+  useEffect(() => {
+    if (!classId) { setData(null); setError(""); return; }
+    let alive = true;
+    // 换班时清空重排，同一班级内的刷新保留旧格子，避免每次登记都闪一次骨架
+    const scope = `${kind}|${classId}`;
+    if (scope !== scopeRef.current) { scopeRef.current = scope; setData(null); }
+    setError("");
+    void (async () => {
+      try {
+        const d = await apiGet<DailyGrid>(`${kind}.grid`, { classId, days });
+        if (alive) setData(d);
+      } catch (e) { if (alive) setError(errorMessage(e)); }
+    })();
+    return () => { alive = false; };
+  }, [kind, classId, days, rev]);
+
+  return (
+    <Panel title="登记总览"
+      description={data ? `${data.className} · 最近 ${data.lists.length} 份${meta.listNoun}` : classId ? "正在读取…" : "先在上方选择班级"}
+      action={
+        <FilterSelect size="sm" value={days} onChange={setDays} ariaLabel="显示份数"
+          options={[
+            { value: "5", label: "最近 5 份" },
+            { value: "7", label: "最近 7 份" },
+            { value: "14", label: "最近 14 份" },
+          ]} />
+      }
+      contentClassName="p-3 md:p-0">
+      {!classId ? (
+        <EmptyState icon={Table2} title="选择班级后查看总览" description="总览按班级展开，一格一次登记，容易看出反复欠账的学生。" />
+      ) : error ? (
+        <EmptyState icon={Inbox} title="读取失败" description={error} />
+      ) : !data ? (
+        <TableSkeleton rows={5} cols={6} />
+      ) : !data.lists.length ? (
+        <EmptyState icon={Table2} title={`该班级还没有${meta.listNoun}`} description={meta.emptyHint} />
+      ) : (
+        <div className="overflow-x-auto">
+          <Table className="data-table">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
+                {data.lists.map((l) => (
+                  <TableHead key={l.id} className="min-w-24 whitespace-normal">
+                    <span className="block max-w-32 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>{l.title}</span>
+                    <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">{l.assignDate}</span>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.rows.map((r) => {
+                const settled = new Set(SETTLED[kind]);
+                const pending = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
+                return (
+                  <TableRow key={r.studentId}>
+                    <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
+                      <span className="font-medium">{r.name}</span>
+                      <span className="ml-1.5 font-mono text-xs text-muted-foreground">{r.studentNo}</span>
+                      {pending ? <span className="ml-1.5 text-xs text-warning">待补 {pending}</span>
+                        : <Pill tone="success"><span className="ml-1">全部结清</span></Pill>}
+                    </TableCell>
+                    {data.lists.map((l) => {
+                      const v = r.cells[l.id];
+                      return (
+                        <TableCell key={l.id}>
+                          {v ? <Pill tone={toneOf(v)}>{v}</Pill> : <span className="text-muted-foreground">·</span>}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+const emptyForm = (subjects: Subject[], classes: ClassRow[]) => ({
+  title: "", part: "", subjectId: subjects[0]?.id ?? "", classIds: classes[0] ? [classes[0].id] : [],
+  assignDate: today(), dueDate: "", note: "",
+});
+
+/** 新建 / 修改清单：新建可一次发多个班，修改只动元信息 */
+function ListFormDialog({ kind, open, initial, subjects, classes, onClose, onSaved }: {
+  kind: DailyKind; open: boolean; initial: DailyListRow | null;
+  subjects: Subject[]; classes: ClassRow[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const meta = META[kind];
+  const [form, setForm] = useState(emptyForm(subjects, classes));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(initial
+      ? {
+        title: initial.title, part: initial.part, subjectId: initial.subjectId, classIds: [initial.classId],
+        assignDate: initial.assignDate, dueDate: initial.dueDate, note: initial.note,
+      }
+      : emptyForm(subjects, classes));
+  }, [open, initial, kind, subjects, classes]);
+
+  const classChoices = initial ? classes.filter((c) => c.id === initial.classId) : classes;
+  const toggleClass = (id: string) => {
+    const next = form.classIds.includes(id) ? form.classIds.filter((x) => x !== id) : [...form.classIds, id];
+    setForm({ ...form, classIds: next });
+  };
+
+  const submit = async () => {
+    if (!form.title.trim()) { toast.error(`请填写${meta.titleField}`); return; }
+    if (!form.subjectId) { toast.error("请选择科目"); return; }
+    if (!form.classIds.length) { toast.error("请至少选择一个班级"); return; }
+    setBusy(true);
+    try {
+      await apiPost(`${kind}.save`, {
+        id: initial?.id, subjectId: form.subjectId, classIds: form.classIds,
+        title: form.title.trim(), part: kind === "recitation" ? form.part.trim() : "",
+        assignDate: form.assignDate, dueDate: form.dueDate, note: form.note.trim(),
+      });
+      toast.success(initial ? "清单已更新"
+        : `${meta.listNoun}已创建${form.classIds.length > 1 ? `（${form.classIds.length} 个班）` : ""}`);
+      onSaved();
+      onClose();
+    } catch (e) { toast.error(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{initial ? `修改${meta.listNoun}` : `新建${meta.listNoun}`}</DialogTitle>
+          <DialogDescription>
+            {initial ? "只改这份清单的元信息，已有登记保持不变。" : "同一份内容可一次发到多个班级，每班各生成一份清单。"}
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-3.5" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+          <div className="space-y-1.5">
+            <Label htmlFor="daily-title" className="text-xs text-muted-foreground">{meta.titleField}</Label>
+            <Input id="daily-title" maxLength={100} placeholder={meta.titleHint}
+              value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+          {kind === "recitation" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="daily-part" className="text-xs text-muted-foreground">段落范围（可空）</Label>
+              <Input id="daily-part" maxLength={60} placeholder="如 第 2-4 段"
+                value={form.part} onChange={(e) => setForm({ ...form, part: e.target.value })} />
+            </div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">科目</Label>
+              <FilterSelect value={form.subjectId} onChange={(v) => setForm({ ...form, subjectId: v })}
+                ariaLabel="选择科目" className="w-full" options={subjects.map((s) => ({ value: s.id, label: s.name }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">布置日期</Label>
+              <DateField value={form.assignDate} ariaLabel="布置日期" className="w-full"
+                onChange={(v) => setForm({ ...form, assignDate: v })} />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">截止日期（可空）</Label>
+              <DateField value={form.dueDate} ariaLabel="截止日期" placeholder="不设定" className="w-full"
+                onChange={(v) => setForm({ ...form, dueDate: v })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="daily-note" className="text-xs text-muted-foreground">备注（可空）</Label>
+              <Input id="daily-note" maxLength={200} placeholder="如 重点句默写"
+                value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">{initial ? "所属班级" : "发送班级"}</Label>
+            {initial ? (
+              <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm">{classChoices[0]?.name ?? initial.className}</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {classChoices.map((c) => (
+                  <Button key={c.id} type="button" size="sm" variant={form.classIds.includes(c.id) ? "default" : "outline"}
+                    onClick={() => toggleClass(c.id)}>{c.name}</Button>
+                ))}
+                {!classChoices.length ? (
+                  <p className="text-xs text-muted-foreground">没有可发送的班级：教师只显示自己任教的班级。</p>
+                ) : null}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>取消</Button>
+            <Button type="submit" disabled={busy}>{initial ? "保存修改" : "创建"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type Entry = { status: string; note: string };
+
+/** 名单登记：逐人点状态（再点同状态即撤销），支持批量填充与 CSV 导入 */
+function SheetDialog({ kind, listId, onClose, onChanged }: {
+  kind: DailyKind; listId: string; onClose: () => void; onChanged: () => void;
+}) {
+  const meta = META[kind];
+  const [data, setData] = useState<DailySheet | null>(null);
+  const [draft, setDraft] = useState<Record<string, Entry>>({});
+  const [fill, setFill] = useState("");
+  const [checkDate, setCheckDate] = useState(today());
+  const [planDate, setPlanDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    if (!listId) return;
+    setData(null); setDraft({}); setError(""); setFill(""); setCheckDate(today()); setPlanDate("");
+    try { setData(await apiGet<DailySheet>(`${kind}.sheet`, { listId })); }
+    catch (e) { setError(errorMessage(e)); }
+  }, [kind, listId]);
+  useEffect(() => { void load(); }, [load]);
+
+  const colorOf = useMarkColors([data?.list.className ?? ""]);
+  const view = (r: DailySheet["rows"][number]) => draft[r.studentId] ?? { status: r.record?.status ?? "", note: r.record?.note ?? "" };
+  const dirty = useMemo(() => {
+    if (!data) return [];
+    return data.rows
+      .filter((r) => {
+        const d = draft[r.studentId];
+        return !!d && (d.status !== (r.record?.status ?? "") || d.note !== (r.record?.note ?? ""));
+      })
+      .map((r) => ({ studentId: r.studentId, status: draft[r.studentId].status, note: draft[r.studentId].note }));
+  }, [data, draft]);
+
+  const setStatus = (r: DailySheet["rows"][number], next: string) => {
+    const cur = view(r);
+    setDraft({ ...draft, [r.studentId]: { status: cur.status === next ? "" : next, note: cur.note } });
+  };
+  const setNote = (r: DailySheet["rows"][number], note: string) => {
+    setDraft({ ...draft, [r.studentId]: { ...view(r), note } });
+  };
+  const fillRest = (status: string) => {
+    if (!data || !status) return;
+    const next = { ...draft };
+    let n = 0;
+    for (const r of data.rows) {
+      if (r.status !== "在读") continue;
+      if ((next[r.studentId]?.status ?? r.record?.status ?? "") !== "") continue;
+      next[r.studentId] = { status, note: next[r.studentId]?.note ?? r.record?.note ?? "" };
+      n += 1;
+    }
+    setDraft(next); setFill("");
+    toast.success(n ? `未登记的 ${n} 人已填为「${status}」，保存后生效` : "没有未登记的学生");
+  };
+
+  const save = async () => {
+    if (!dirty.length) { onClose(); return; }
+    setBusy(true);
+    try {
+      const r = await apiPost<{ saved: number }>(`${kind}.check`, {
+        listId,
+        entries: dirty.map((d) => ({
+          ...d, checkDate,
+          ...(kind === "recitation" && planDate ? { planDate } : {}),
+        })),
+      });
+      toast.success(`已保存 ${r.saved} 条登记`);
+      onChanged();
+      await load();
+    } catch (e) { toast.error(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+
+  const template = (): (string | number | null)[][] => [
+    ["学号", "状态", "检查日期", ...(kind === "recitation" ? ["计划日期"] : []), "备注"],
+    ...(data?.rows ?? []).slice(0, 5).map((r) => [
+      r.studentNo, r.record?.status ?? data?.pass ?? "", r.record?.checkDate || checkDate,
+      ...(kind === "recitation" ? [r.record?.planDate ?? ""] : []), r.record?.note ?? "",
+    ]),
+  ];
+
+  return (
+    <Dialog open={!!listId} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{data?.list.title || meta.nav}</DialogTitle>
+          <DialogDescription>
+            {data
+              ? `${data.list.className} · ${data.list.subjectName} · 应交 ${data.list.total} 人${data.list.part ? ` · ${data.list.part}` : ""}`
+              : "正在读取名单…"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {error ? (
+          <EmptyState icon={Inbox} title="读取失败" description={error}
+            action={<Button variant="outline" onClick={() => void load()}>重试</Button>} />
+        ) : !data ? (
+          <TableSkeleton rows={6} cols={4} />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2.5">
+              <span className="text-xs text-muted-foreground">{meta.checkNoun}</span>
+              <DateField value={checkDate} ariaLabel={meta.checkNoun} className="w-36" onChange={setCheckDate} />
+              {kind === "recitation" ? (
+                <>
+                  <span className="text-xs text-muted-foreground">延背应背日</span>
+                  <DateField value={planDate} ariaLabel="延背应背日期" placeholder="不设定" className="w-36" onChange={setPlanDate} />
+                </>
+              ) : null}
+              <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+              <FilterSelect size="sm" value={fill} onChange={fillRest} ariaLabel="批量填充未登记" allLabel="批量填充未登记"
+                options={data.statuses.map((s) => ({ value: s, label: `填为「${s}」` }))} />
+              <Button size="sm" variant="outline" className="ml-auto" onClick={() => setImporting(true)}>
+                <FileUp /> 批量导入
+              </Button>
+            </div>
+
+            <div className="max-h-[52vh] overflow-y-auto rounded-lg border">
+              <Table className="data-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
+                    <TableHead className="min-w-56">状态</TableHead>
+                    {data.hasAttempt ? <TableHead className="w-16 text-right">次数</TableHead> : null}
+                    <TableHead>备注</TableHead>
+                    <TableHead className="w-32">登记人</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => {
+                    const cur = view(r);
+                    const changed = dirty.some((d) => d.studentId === r.studentId);
+                    const off = r.status !== "在读";
+                    return (
+                      <TableRow key={r.studentId} className={cn(changed && "bg-primary/5")}>
+                        <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
+                          <span className="flex items-center gap-2">
+                            <ClassMark name={r.name} color={colorOf(data.list.className)} />
+                            <span>
+                              <span className="block font-medium">{r.name}</span>
+                              <span className="block font-mono text-[11px] text-muted-foreground">
+                                {r.studentNo}{off ? ` · ${r.status}` : ""}
+                              </span>
+                            </span>
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="flex flex-wrap gap-1">
+                            {data.statuses.map((s) => (
+                              <Button key={s} type="button" size="xs" variant={cur.status === s ? "default" : "outline"}
+                                disabled={off} aria-label={`${r.name}：${s}`}
+                                onClick={() => setStatus(r, s)}>{s}</Button>
+                            ))}
+                          </span>
+                        </TableCell>
+                        {data.hasAttempt ? (
+                          <TableCell className="text-right tabular-nums">
+                            {cur.status ? `第 ${r.record?.attempt ?? 1} 次` : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                        ) : null}
+                        <TableCell>
+                          <Input maxLength={200} className="h-8 min-w-32" placeholder="可空" disabled={off}
+                            value={cur.note} onChange={(e) => setNote(r, e.target.value)} />
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {r.record
+                            ? `${r.record.recordedByName || "—"} · ${r.record.checkDate}${r.record.planDate ? ` · 约 ${r.record.planDate}` : ""}`
+                            : "未登记"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              再点一次当前状态即撤销该生登记；{kind === "recitation" ? "状态变化时背诵次数自动 +1，同状态重复点不计次。" : "同一学生重复登记会覆盖上一次的结果。"}
+            </p>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>{dirty.length ? "放弃修改" : "关闭"}</Button>
+          <Button onClick={() => void save()} disabled={busy || !dirty.length}>
+            {busy ? "保存中…" : dirty.length ? `保存 ${dirty.length} 条变更` : "无变更"}
+          </Button>
+        </DialogFooter>
+
+        {data && (
+          <ImportDialog
+            open={importing}
+            onClose={() => setImporting(false)}
+            onDone={() => { setImporting(false); void load(); onChanged(); }}
+            title={`导入${meta.nav}`}
+            description={`写入「${data.list.title}」的登记结果，一次最多 500 行；只有校验通过的行会写入。`}
+            header="学号"
+            labels={IMPORT_LABELS}
+            templateName={`${meta.nav}导入模板.csv`}
+            template={template}
+            toRecords={(headerCells, body) => dailyRecordsOf(kind, headerCells, body)}
+            guidance={
+              <div className="space-y-2">
+                <p>表头需含 <b>学号, 状态</b>{kind === "recitation" ? "，可选 检查日期, 计划日期, 备注" : "，可选 检查日期, 备注"}；状态取值：{data.statuses.join(" / ")}。</p>
+                <p>日期为 YYYY-MM-DD；学号必须属于这份清单所在的班级，越权行会标注原因并跳过。</p>
+                <p>已登记过的学生会被<b>覆盖</b>，导入按第一次登记计次。</p>
+              </div>
+            }
+            submit={(rows, dryRun) => apiPost<ImportResult>(`${kind}.import`, { listId, rows, dryRun })}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const IMPORT_LABELS: Record<string, string> = {
+  studentNo: "学号", status: "状态", checkDate: "检查日期", planDate: "计划日期", note: "备注",
+};
+
+/** 导入只认列名：学号, 状态[, 检查日期][, 计划日期][, 备注]；状态是否合法交给后端逐行判定 */
+function dailyRecordsOf(kind: DailyKind, headerCells: string[] | null, body: string[][]) {
+  if (!headerCells) return { records: [], error: "文件必须带表头行，至少包含「学号, 状态」两列。" };
+  const noAt = headerCells.indexOf("学号");
+  const stAt = headerCells.findIndex((h) => h === "状态" || h === "完成情况");
+  if (noAt < 0 || stAt < 0) return { records: [], error: "表头里需要「学号」和「状态」两列，可点「下载模板」对照。" };
+  const dateAt = headerCells.indexOf("检查日期");
+  const planAt = kind === "recitation" ? headerCells.indexOf("计划日期") : -1;
+  const noteAt = headerCells.indexOf("备注");
+  const records = body
+    .map((cells) => ({
+      studentNo: (cells[noAt] ?? "").trim(),
+      status: (cells[stAt] ?? "").trim(),
+      checkDate: dateAt >= 0 ? (cells[dateAt] ?? "").trim() : "",
+      planDate: planAt >= 0 ? (cells[planAt] ?? "").trim() : "",
+      note: noteAt >= 0 ? (cells[noteAt] ?? "").trim() : "",
+    }))
+    .filter((r) => r.studentNo || r.status);
+  if (!records.length) return { records: [], error: "没有解析出数据行：每行至少要有学号和状态。" };
+  return { records };
+}

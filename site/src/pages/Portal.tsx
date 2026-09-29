@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardList, Inbox, TrendingUp, Trophy } from "lucide-react";
+import { BookMarked, ClipboardList, Inbox, NotebookPen, TrendingUp, Trophy } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiGet, errorMessage, fmtScore } from "../api";
-import type { PortalData, PortalRecord } from "../types";
+import type { DailyKind, PortalDailyItem, PortalData, PortalRecord } from "../types";
 import {
   EmptyState, PageHeader, Panel, Pill, ScoreText, StatCard, STUDENT_STATUS_TONE,
   TableSkeleton, useThemeColors,
 } from "../components/app-ui";
+import { SETTLED, toneOf } from "./Daily";
 
 /** 折线图取色同样从 token 来，保证与看板一致 */
 const CHART_VARS = ["--chart-1", "--warning", "--muted-foreground", "--border"];
@@ -139,9 +140,75 @@ export default function Portal() {
         </Panel>
       ) : null}
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DailyPanel
+          kind="recitation"
+          icon={BookMarked} title="背诵登记" description="最近 30 篇，按布置日期倒序"
+          items={data.recitations} emptyText="老师还没有登记你的背诵结果。"
+        />
+        <DailyPanel
+          kind="homework"
+          icon={NotebookPen} title="作业完成情况" description="最近 30 次，按布置日期倒序"
+          items={data.homeworks} emptyText="老师还没有登记你的作业完成情况。"
+        />
+      </div>
+
       <p className="px-1 text-xs text-muted-foreground">
         学生账号只能查看本人的档案摘要与成绩，无法修改任何数据。如有疑问请联系班主任。
       </p>
     </div>
+  );
+}
+
+function DailyPanel({ kind, icon: Icon, title, description, items, emptyText }: {
+  kind: DailyKind; icon: typeof Inbox; title: string; description: string; items: PortalDailyItem[]; emptyText: string;
+}) {
+  const settled = new Set(SETTLED[kind]);
+  const pending = items.filter((i) => !settled.has(i.status)).length;
+  return (
+    <Panel
+      title={title}
+      description={items.length ? description : "老师登记后这里会显示本人的结果"}
+      action={items.length
+        ? <Pill tone={pending ? "warning" : "success"}>{pending ? `待完成 ${pending} 项` : "全部完成"}</Pill>
+        : undefined}
+      contentClassName="p-3 md:p-0"
+    >
+      {!items.length ? (
+        <EmptyState icon={Icon} title={`暂无${title}记录`} description={emptyText} />
+      ) : (
+        <div className="max-h-80 overflow-y-auto">
+          <Table className="responsive-table data-table">
+            <TableHeader>
+              <TableRow>
+                <TableHead>内容</TableHead>
+                <TableHead className="w-24">状态</TableHead>
+                <TableHead className="w-24 text-right">日期</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((i) => (
+                <TableRow key={`${i.title}-${i.assignDate}-${i.checkDate}`}>
+                  <TableCell data-label="内容">
+                    <span className="block font-medium">{i.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[i.subjectName, i.part, i.note].filter(Boolean).join(" · ")}
+                    </span>
+                  </TableCell>
+                  <TableCell data-label="状态">
+                    <Pill tone={toneOf(i.status)}>{i.status}</Pill>
+                    {i.attempt > 1 ? <span className="ml-1 text-[11px] text-muted-foreground">第 {i.attempt} 次</span> : null}
+                  </TableCell>
+                  <TableCell data-label="日期" className="text-right text-xs tabular-nums text-muted-foreground">
+                    {i.checkDate || i.assignDate}
+                    {i.planDate ? <span className="block text-warning">约 {i.planDate}</span> : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Panel>
   );
 }

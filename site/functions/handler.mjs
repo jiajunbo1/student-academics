@@ -1,48 +1,20 @@
 // 学业管理系统业务 handler：action 路由 + 自建账号会话鉴权 + 角色控制（ADMIN/TEACHER/STUDENT）。
 // 数据库为 app.* 受限 schema：uuid 主键、日期用 text(YYYY-MM-DD)、分数用 integer(十分之一分)。
+// 共用校验与响应封装在 common.mjs，背诵/作业登记见 daily.mjs。
 import { UserContextError } from './auth.mjs';
+import {
+  AppError, ARR, CELL, DATE, DATE_RE, DRY, E, ID, IMPORT_MAX_ROWS, INT, ONE_OF, OPT_ID, OPT_STR, STR,
+  count, db, fail, nowIso, ok, importResult, readBody,
+} from './common.mjs';
 import {
   AuthError, ACCOUNT_ROLES, ACCOUNT_STATUS, authenticate, bootstrapAdmin, checkPasswordFormat,
   createAccount, dropAccountSessions, dropSession, findAccountById, findAccountByUsername, hasAccounts,
-  isValidUsername, normalizeUsername, publicAccount, readSession, setPassword, verifyPassword,
+  isValidUsername, normalizeUsername, publicAccount, setPassword, verifyPassword,
 } from './accounts.mjs';
+import { currentAccount, principal, requireAdmin, requireStaff, teachesClass, teachesPair, teachesSubject, TOKEN_HEADER } from './scope.mjs';
 import { buildDemoData } from './demo-data.mjs';
+import { dailyRoutes, portalDaily } from './daily.mjs';
 
-const json = (body, status = 200) =>
-  Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
-const ok = (data = {}) => json({ ok: true, ...data });
-const fail = (error, status = 400) => json({ ok: false, error }, status);
-
-class AppError extends Error {
-  constructor(code, status = 400) { super(code); this.code = code; this.status = status; }
-}
-
-// ---------- 校验工具 ----------
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
-const ID = (v) => (typeof v === 'string' && UUID_RE.test(v) ? v : (() => { throw new AppError('invalid_id'); })());
-const OPT_ID = (v) => (v === null || v === undefined || v === '' ? null : ID(v));
-const STR = (v, max, req = true) => {
-  if (v === null || v === undefined) v = '';
-  if (typeof v !== 'string') throw new AppError('invalid_text');
-  v = v.trim();
-  if (req && !v.length) throw new AppError('missing_field');
-  if (new TextEncoder().encode(v).length > max) throw new AppError('text_too_long');
-  return v;
-};
-const OPT_STR = (v, max) => STR(v, max, false) || null;
-const DATE = (v, req = true) => {
-  if (v === null || v === undefined || v === '') { if (req) throw new AppError('missing_date'); return null; }
-  const s = STR(v, 10);
-  if (!DATE_RE.test(s)) throw new AppError('invalid_date');
-  return s;
-};
-const ONE_OF = (v, list, req = true) => {
-  const s = STR(v, 40, req);
-  if (!s && !req) return null;
-  if (!list.includes(s)) throw new AppError('invalid_choice');
-  return s;
-};
 // 分数：输入 0-150 一位小数，存储为十分之一整数
 const SCORE_T = (v) => {
   const n = Number(v);
@@ -50,65 +22,9 @@ const SCORE_T = (v) => {
   return Math.round(n * 10);
 };
 const TENTHS = (v) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1500 ? v : (() => { throw new AppError('invalid_score'); })());
-const INT = (v, min, max) => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) throw new AppError('invalid_number');
-  return n;
-};
-const ARR = (v, max) => { if (!Array.isArray(v) || v.length > max) throw new AppError('invalid_list'); return v; };
 
 const GENDERS = ['男', '女'];
 const STUDENT_STATUS = ['在读', '休学', '转班', '毕业'];
-
-// ---------- 查询工具 ----------
-async function db(promise, code = 'db_error') {
-  const { data, error } = await promise;
-  if (error) throw new AppError(code, 503);
-  return data;
-}
-async function count(supabase, table, filter) {
-  let q = supabase.from(table).select('id', { count: 'exact' }).limit(1);
-  if (filter) q = q.eq(filter[0], filter[1]);
-  const { error, count: c } = await q;
-  if (error || !Number.isSafeInteger(c)) throw new AppError('count_unavailable', 503);
-  return c;
-}
-const nowIso = () => new Date().toISOString();
-
-// ---------- 身份与角色 ----------
-const TOKEN_HEADER = 'x-app-token';
-
-async function currentAccount(supabase, request) {
-  const account = await readSession(supabase, request.headers.get(TOKEN_HEADER));
-  if (!account) throw new AppError('login_required', 401);
-  return account;
-}
-// 业务动作一律要求会话；管理员设置的初始口令未改掉前只允许改密/登出。
-async function principal(supabase, request) {
-  const account = await currentAccount(supabase, request);
-  if (account.must_change) throw new AppError('password_change_required', 403);
-  return { account, scope: await loadScope(supabase, account) };
-}
-const requireAdmin = (p) => { if (p.account.role !== 'ADMIN') throw new AppError('forbidden', 403); };
-const requireStaff = (p) => { if (p.account.role === 'STUDENT') throw new AppError('forbidden', 403); };
-
-// ---------- 教师任教授权 ----------
-// teaching_assignments 一行 = 「该教师在该班教该科目」；管理员为全量，学生不走这套范围。
-async function loadScope(supabase, account) {
-  const scope = { all: account.role === 'ADMIN', subjectIds: new Set(), classIds: new Set(), pairs: new Set() };
-  if (account.role !== 'TEACHER') return scope;
-  const rows = await db(supabase.from('teaching_assignments').select('*').eq('account_id', account.id));
-  for (const r of rows) {
-    scope.subjectIds.add(r.subject_id);
-    scope.classIds.add(r.class_id);
-    scope.pairs.add(`${r.subject_id}|${r.class_id}`);
-  }
-  return scope;
-}
-const teachesSubject = (scope, subjectId) => scope.all || scope.subjectIds.has(subjectId);
-const teachesClass = (scope, classId) => scope.all || scope.classIds.has(classId);
-const teachesPair = (scope, subjectId, classId) => scope.all || scope.pairs.has(`${subjectId}|${classId}`);
 
 // 授权条目校验：去重后的 {subjectId, classId} 列表；非教师角色必须为空。
 function normalizeAssignments(raw, role) {
@@ -443,7 +359,7 @@ async function actPortalMe(supabase, request) {
       enrollYear: student.enroll_year, status: student.status,
       className: (classes.find(c => c.id === student.class_id) || {}).name || '',
     },
-    subjects, records,
+    subjects, records, ...(await portalDaily(supabase, studentId, student.class_id)),
   });
 }
 
@@ -550,15 +466,6 @@ async function actSubjectTrend(supabase, request, params) {
 }
 
 // ---------- POST 动作 ----------
-async function readBody(request) {
-  const ct = request.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) throw new AppError('invalid_body');
-  const len = Number(request.headers.get('content-length') || 0);
-  if (len > 200000) throw new AppError('body_too_large');
-  try { const b = await request.json(); if (!b || typeof b !== 'object' || Array.isArray(b)) throw new AppError('invalid_body'); return b; }
-  catch (e) { if (e instanceof AppError) throw e; throw new AppError('invalid_body'); }
-}
-
 async function actClassesSave(supabase, request) {
   const p = await principal(supabase, request); requireAdmin(p);
   const b = await readBody(request);
@@ -661,10 +568,6 @@ async function actDemoSeed(supabase, request) {
 // ---------- 批量导入 ----------
 // CSV 解析在前端完成，这里只做服务端逐行校验；dryRun 默认 true，先给前端预览再确认落库。
 // 每行返回 { line, label, ok, action, errors:[{field,code}] }，无效行不影响其他行写入。
-const IMPORT_MAX_ROWS = 500;
-const CELL = (v) => (typeof v === 'string' ? v.trim() : v === null || v === undefined ? '' : String(v).trim());
-const E = (field, code) => ({ field, code });
-const DRY = (b) => b.dryRun !== false;
 const keep = (v, old) => (v === '' ? old : v);
 
 async function actImportStudents(supabase, request) {
@@ -780,15 +683,6 @@ async function actImportScores(supabase, request) {
   return importResult(dryRun, items, { examId, examName: exam.name });
 }
 
-const importResult = (dryRun, items, extra = {}) => {
-  const of = (a) => items.filter((x) => x.action === a).length;
-  return ok({
-    ...extra, dryRun, total: items.length,
-    created: of('create'), updated: of('update'), skipped: of('skip'), invalid: of('invalid'),
-    items,
-  });
-}
-
 // ---------- 路由 ----------
 const GETS = new Map([
   ['auth.status', (s, r, p) => actAuthStatus(s)],
@@ -802,6 +696,7 @@ const GETS = new Map([
   ['scores.trend', actSubjectTrend],
   ['portal.me', actPortalMe],
   ['accounts.list', actAccountsList],
+  ...dailyRoutes.GETS,
 ]);
 const POSTS = new Map([
   ['auth.login', actAuthLogin], ['auth.bootstrap', actAuthBootstrap],
@@ -813,6 +708,7 @@ const POSTS = new Map([
   ['exams.save', actExamsSave], ['scores.save', actScoresSave],
   ['import.students', actImportStudents], ['import.scores', actImportScores],
   ['demo.seed', actDemoSeed],
+  ...dailyRoutes.POSTS,
 ]);
 
 export async function handleApp({ request, supabase }) {

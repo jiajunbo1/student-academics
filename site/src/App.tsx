@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  LayoutDashboard, Users, ClipboardList, Settings, BookOpenCheck,
+  LayoutDashboard, Users, ClipboardList, Settings, BookOpenCheck, BookMarked,
   GraduationCap, LogOut, KeyRound, ShieldCheck, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,6 +15,7 @@ import { ForcePasswordScreen, LoginScreen, ChangePasswordForm } from "./componen
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
 import Scores from "./pages/Scores";
+import Daily from "./pages/Daily";
 import SettingsPage from "./pages/Settings";
 import Portal from "./pages/Portal";
 
@@ -22,6 +23,7 @@ const NAV = [
   { key: "dashboard", label: "总览看板", short: "看板", icon: LayoutDashboard, roles: ["ADMIN", "TEACHER"] },
   { key: "students", label: "学生档案", short: "档案", icon: Users, roles: ["ADMIN", "TEACHER"] },
   { key: "scores", label: "成绩管理", short: "成绩", icon: ClipboardList, roles: ["ADMIN", "TEACHER"] },
+  { key: "daily", label: "日常记录", short: "日常", icon: BookMarked, roles: ["ADMIN", "TEACHER"] },
   { key: "portal", label: "我的学业", short: "我的", icon: BookOpenCheck, roles: ["STUDENT"] },
   { key: "settings", label: "系统设置", short: "设置", icon: Settings, roles: ["ADMIN", "TEACHER"] },
 ] as const;
@@ -196,6 +198,7 @@ export default function App() {
           {current?.key === "dashboard" && <Dashboard onChangeTab={setTab} isAdmin={isAdmin} />}
           {current?.key === "students" && <Students isAdmin={isAdmin} />}
           {current?.key === "scores" && <Scores isAdmin={isAdmin} />}
+          {current?.key === "daily" && <Daily />}
           {current?.key === "portal" && <Portal />}
           {current?.key === "settings" && <SettingsPage isAdmin={isAdmin} me={account} onMeChanged={setAccount} />}
         </main>
