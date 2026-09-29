@@ -229,7 +229,7 @@ await step('出勤/素质相关 action 已下线', async () => {
   await api('auth.change-password', null, { currentPassword: TEACHER_PW, newPassword: TEACHER_PW2 }, firstStu);
   const tok = (await api('auth.login', null, { username: 'imp_student', password: TEACHER_PW2 })).token;
   const portalKeys = Object.keys(await api('portal.me', null, undefined, tok)).filter((k) => k !== 'ok');
-  check('portal.me 只返回学生/科目/记录', JSON.stringify(portalKeys.sort()) === '["records","student","subjects"]', portalKeys.join(','));
+  check('portal.me 只返回学生/科目/记录/日常登记', JSON.stringify(portalKeys.sort()) === '["homeworks","recitations","records","student","subjects"]', portalKeys.join(','));
   const guard = await call('import.scores', null, { examId, rows: [{ studentNo: stu.student_no, subjectName: '语文', score: '1' }] }, tok);
   check('学生账号不能导入', errOf(guard) === 'forbidden', JSON.stringify(guard.json));
   await api('accounts.delete', null, { id: acc.id }, admin);
