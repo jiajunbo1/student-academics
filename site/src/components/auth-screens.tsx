@@ -118,7 +118,7 @@ export function LoginScreen({ needsBootstrap, onLoggedIn }: {
       title="高中学生学业管理系统"
       subtitle={mode === "bootstrap"
         ? "系统还没有任何账号。请设置第一位管理员，之后由管理员开通教师与学生账号。"
-        : "这里管理学生档案、成绩、出勤与素质发展记录。账号由管理员开通，无需注册。"}
+        : "这里管理学生档案与成绩记录。账号由管理员开通，无需注册。"}
     >
       <form className="space-y-3.5" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         {mode === "bootstrap" ? (

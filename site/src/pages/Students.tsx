@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { GraduationCap, Plus, Search, Trash2, Pencil, Users, UserX, CalendarClock } from "lucide-react";
+import { FileUp, GraduationCap, Plus, Search, Trash2, Pencil, Users, UserX, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -12,14 +13,44 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
+import { ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  ClassDot, ClassMark, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
-import type { StudentRow, ClassRow, ScoreRow, AttendanceRow, DisciplineRow, ActivityRow, ReviewRow, Subject, Exam } from "../types";
+import type { StudentRow, ClassRow, ScoreRow, Subject, Exam } from "../types";
 
 const STATUSES = ["在读", "休学", "转班", "毕业"];
 const STATUS_OPTIONS: SelectOption[] = STATUSES.map((s) => ({ value: s, label: s }));
+
+// 名单导入的列定义：表头按名字匹配，因此列顺序随意、可选列可缺
+const ROSTER_COLS = [
+  { key: "studentNo", head: "学号", required: true },
+  { key: "name", head: "姓名", required: true },
+  { key: "gender", head: "性别", required: true },
+  { key: "birthDate", head: "出生日期" },
+  { key: "className", head: "班级", required: true },
+  { key: "enrollYear", head: "入学年份" },
+  { key: "status", head: "状态" },
+  { key: "address", head: "家庭住址" },
+  { key: "phone", head: "联系电话" },
+  { key: "guardianName", head: "家长姓名" },
+  { key: "guardianPhone", head: "家长电话" },
+];
+const ROSTER_LABELS = Object.fromEntries(ROSTER_COLS.map((c) => [c.key, c.head]));
+
+function rosterRecords(headerCells: string[] | null, body: string[][]) {
+  const at = headerCells ? ROSTER_COLS.map((c) => headerCells.indexOf(c.head)) : ROSTER_COLS.map((_, i) => i);
+  const missing = ROSTER_COLS.filter((c, i) => c.required && headerCells && at[i] < 0).map((c) => c.head);
+  if (missing.length) return { records: [], error: `表头缺少必填列：${missing.join("、")}。可先下载模板照着填。` };
+  const records = body.map((cells) => {
+    const rec: Record<string, string> = {};
+    ROSTER_COLS.forEach((c, i) => { if (at[i] >= 0) rec[c.key] = cells[at[i]] ?? ""; });
+    return rec;
+  }).filter((r) => (r.studentNo || "").trim() || (r.name || "").trim());
+  return { records };
+}
 
 interface FormState {
   id?: string; studentNo: string; name: string; gender: string; birthDate: string;
@@ -42,10 +73,11 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const [editing, setEditing] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<{
-    student: StudentRow; scores: ScoreRow[]; attendances: AttendanceRow[];
-    disciplines: DisciplineRow[]; activities: ActivityRow[]; reviews: ReviewRow[];
+    student: StudentRow; scores: ScoreRow[];
   } | null>(null);
   const [refData, setRefData] = useState<{ subjects: Subject[]; exams: Exam[] }>({ subjects: [], exams: [] });
+  const [importing, setImporting] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -96,7 +128,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const remove = async (row: StudentRow) => {
-    if (!confirm(`确定删除学生「${row.name}」及其全部成绩、出勤、奖惩、活动、评语记录？`)) return;
+    if (!confirm(`确定删除学生「${row.name}」及其全部成绩记录？`)) return;
     try {
       await apiPost("students.delete", { id: row.id });
       toast.success("已删除"); void load();
@@ -116,12 +148,20 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const subjectName = useMemo(() => new Map(refData.subjects.map((s) => [s.id, s.name])), [refData]);
   const examName = useMemo(() => new Map(refData.exams.map((e) => [e.id, e.name])), [refData]);
   const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
+  const colorOf = useMarkColors(classes.map((c) => c.name));
 
   return (
     <div>
-      <PageHeader title="学生档案" description={`共 ${stats.total} 名学生 · 在读 ${stats.active} 人 · 点击任意一行查看完整档案`}>
+      <PageHeader
+        title="学生档案"
+        eyebrow={classId ? (className.get(classId) ?? "班级") : "全部班级"}
+        description={`共 ${stats.total} 名学生 · 在读 ${stats.active} 人 · 点击任意一行查看完整档案`}
+      >
         {isAdmin && (
-          <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>
+          <>
+            <Button variant="outline" onClick={() => setImporting(true)}><FileUp /> 导入名单</Button>
+            <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>
+          </>
         )}
       </PageHeader>
 
@@ -152,14 +192,14 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           <EmptyState
             icon={GraduationCap}
             title="没有符合条件的学生"
-            description={kw || classId || status ? "试试调整或清除上方的筛选条件。" : "先添加学生档案，之后才能录入成绩与出勤。"}
+            description={kw || classId || status ? "试试调整或清除上方的筛选条件。" : "先添加学生档案，之后才能录入成绩。"}
             action={isAdmin && !kw && !classId && !status ? (
               <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>
             ) : undefined}
           />
         ) : (
           <div className="overflow-x-auto">
-            <Table className="responsive-table">
+            <Table className="responsive-table data-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead className="hidden md:table-cell">性别</TableHead>
@@ -169,12 +209,24 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
+                {rows.map((r) => {
+                  const markName = className.get(r.class_id) ?? "";
+                  return (
                   <TableRow key={r.id} className="cursor-pointer" onClick={() => void openDetail(r)}>
                     <TableCell data-label="学号" className="font-mono text-xs">{r.student_no}</TableCell>
-                    <TableCell data-label="姓名" className="font-medium">{r.name}</TableCell>
+                    <TableCell data-label="姓名" className="font-medium">
+                      <span className="flex items-center gap-2">
+                        <ClassMark name={r.name} color={colorOf(markName)} />
+                        {r.name}
+                      </span>
+                    </TableCell>
                     <TableCell data-label="性别" className="hidden md:table-cell text-muted-foreground">{r.gender}</TableCell>
-                    <TableCell data-label="班级">{className.get(r.class_id) ?? ""}</TableCell>
+                    <TableCell data-label="班级">
+                      <span className="flex items-center gap-1.5">
+                        <ClassDot color={colorOf(markName)} />
+                        {className.get(r.class_id) ?? ""}
+                      </span>
+                    </TableCell>
                     <TableCell data-label="家长" className="text-muted-foreground">
                       {r.guardian_name ?? "—"}{r.guardian_phone ? ` (${r.guardian_phone})` : ""}
                     </TableCell>
@@ -182,13 +234,14 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                     <TableCell data-label="操作" className="text-right whitespace-nowrap">
                       {isAdmin && (
                         <>
-                          <Button size="sm" variant="ghost" aria-label="编辑" onClick={(e) => { e.stopPropagation(); openEdit(r); }}><Pencil className="size-4" /></Button>
-                          <Button size="sm" variant="ghost" aria-label="删除" className="text-destructive" onClick={(e) => { e.stopPropagation(); void remove(r); }}><Trash2 className="size-4" /></Button>
+                          <Button size="icon-xs" className="size-7" variant="ghost" aria-label="编辑" onClick={(e) => { e.stopPropagation(); openEdit(r); }}><Pencil className="size-4" /></Button>
+                          <Button size="icon-xs" variant="ghost" aria-label="删除" className="size-7 text-destructive" onClick={(e) => { e.stopPropagation(); void remove(r); }}><Trash2 className="size-4" /></Button>
                         </>
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -234,7 +287,10 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           {detail && (
             <>
               <SheetHeader className="border-b">
-                <SheetTitle>{detail.student.name} <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">{detail.student.student_no}</span></SheetTitle>
+                <SheetTitle className="flex items-center gap-2.5">
+                  <ClassMark name={detail.student.name} color={colorOf(detail.student.className ?? "")} large />
+                  <span>{detail.student.name} <span className="ml-1 font-mono text-sm font-normal text-muted-foreground">{detail.student.student_no}</span></span>
+                </SheetTitle>
                 <SheetDescription>
                   {detail.student.className} · {detail.student.gender} · {detail.student.status}
                   {detail.student.guardian_name ? ` · 家长：${detail.student.guardian_name}${detail.student.guardian_phone ? ` ${detail.student.guardian_phone}` : ""}` : ""}
@@ -242,7 +298,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
               </SheetHeader>
               <div className="space-y-4 p-4">
                 <DetailSection title="成绩记录" count={detail.scores.length}>
-                  {detail.scores.slice(0, 8).map((s) => (
+                  {detail.scores.slice(0, 12).map((s) => (
                     <Row key={s.id}>
                       <span className="min-w-0 truncate">{examName.get(s.exam_id) ?? "考试"} · {subjectName.get(s.subject_id) ?? "科目"}</span>
                       <ScoreText tenths={s.score} className="ml-auto shrink-0" />
@@ -250,42 +306,45 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                   ))}
                   {!detail.scores.length && <Muted>暂无成绩</Muted>}
                 </DetailSection>
-                <DetailSection title="出勤记录" count={detail.attendances.length}>
-                  {detail.attendances.slice(0, 6).map((a) => (
-                    <Row key={a.id}>
-                      <span className="font-mono text-xs text-muted-foreground">{a.att_date}</span>
-                      <Badge variant="outline" className="ml-auto font-normal">{a.status}</Badge>
-                      {a.remark ? <span className="truncate text-xs">{a.remark}</span> : null}
-                    </Row>
-                  ))}
-                  {!detail.attendances.length && <Muted>暂无出勤记录</Muted>}
-                </DetailSection>
-                <DetailSection title="奖惩" count={detail.disciplines.length}>
-                  {detail.disciplines.map((d) => <Row key={d.id}><Pill tone={d.type === "奖励" ? "success" : "danger"}>{d.type}</Pill><span className="min-w-0 flex-1 truncate">{d.content}</span><span className="font-mono text-xs text-muted-foreground">{d.event_date}</span></Row>)}
-                  {!detail.disciplines.length && <Muted>暂无奖惩</Muted>}
-                </DetailSection>
-                <DetailSection title="活动" count={detail.activities.length}>
-                  {detail.activities.map((a) => <Row key={a.id}><Pill>{a.category}</Pill><span className="min-w-0 flex-1 truncate">{a.name}</span><span className="font-mono text-xs text-muted-foreground">{a.event_date}</span></Row>)}
-                  {!detail.activities.length && <Muted>暂无活动</Muted>}
-                </DetailSection>
-                <DetailSection title="评语" count={detail.reviews.length}>
-                  {detail.reviews.map((rv) => (
-                    <div key={rv.id} className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">{rv.term} · {rv.teacher_name ?? "教师"}</p>
-                      <p className="mt-1 leading-relaxed">{rv.content}</p>
-                    </div>
-                  ))}
-                  {!detail.reviews.length && <Muted>暂无评语</Muted>}
-                </DetailSection>
-                <p className="pb-2 text-center text-xs text-muted-foreground">成绩展示 {Math.min(detail.scores.length, 8)} / {detail.scores.length} 条，完整记录见「成绩管理」</p>
+                <p className="pb-2 text-center text-xs text-muted-foreground">成绩展示 {Math.min(detail.scores.length, 12)} / {detail.scores.length} 条，完整记录见「成绩管理」</p>
               </div>
             </>
           )}
         </SheetContent>
       </Sheet>
+
+      <ImportDialog
+        open={importing}
+        onClose={() => setImporting(false)}
+        onDone={() => { setImporting(false); void load(); }}
+        title="导入学生名单"
+        description="一次最多 500 行；只有校验通过的行会写入，问题行会在下方逐行列出原因。"
+        header="学号"
+        labels={ROSTER_LABELS}
+        templateName={`学生名单模板_${classes.map((c) => c.name).join("_") || "全校"}.csv`}
+        template={() => [
+          ROSTER_COLS.slice(0, 7).map((c) => c.head),
+          ["20240101", "张三", "男", "2008-09-01", classes[0]?.name ?? "高一(1)班", "2024", "在读"],
+          ["20240102", "李四", "女", "", classes[0]?.name ?? "高一(1)班", "2024", "在读"],
+        ]}
+        toRecords={rosterRecords}
+        guidance={
+          <div className="space-y-2">
+            <p>表头需包含 <b>学号、姓名、性别、班级</b> 四列，其余列可留空；列顺序不限，按名字识别。出生日期写 <b>YYYY-MM-DD</b>，入学年份写四位年份，状态只能是 {STATUSES.join(" / ")}（留空按「在读」）。班级名必须已在「系统设置」里建好。</p>
+            <p>CSV 里有家庭住址、联系电话、家长信息时也会一并写入；这些内容只在管理员视图出现，学生端不会展示。</p>
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <Checkbox id="roster-overwrite" checked={overwrite} onCheckedChange={(v) => setOverwrite(v === true)} />
+              <span>学号已存在时更新该生档案（留空的选填列保持原值）；不勾选则跳过已有学生</span>
+            </label>
+          </div>
+        }
+        submit={(rows, dryRun) => apiPost<ImportResult>("import.students", { rows, dryRun, updateExisting: overwrite })}
+      />
     </div>
   );
 }
+
+/** 班级色标头像见 app-ui 的 ClassMark */
 
 const MiniStat = ({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: number; tone: string }) => (
   <Card className="border shadow-soft">

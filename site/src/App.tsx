@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  LayoutDashboard, Users, ClipboardList, CalendarCheck, Sprout, Settings, BookOpenCheck,
+  LayoutDashboard, Users, ClipboardList, Settings, BookOpenCheck,
   GraduationCap, LogOut, KeyRound, ShieldCheck, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,8 +15,6 @@ import { ForcePasswordScreen, LoginScreen, ChangePasswordForm } from "./componen
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
 import Scores from "./pages/Scores";
-import Attendance from "./pages/Attendance";
-import Quality from "./pages/Quality";
 import SettingsPage from "./pages/Settings";
 import Portal from "./pages/Portal";
 
@@ -24,8 +22,6 @@ const NAV = [
   { key: "dashboard", label: "总览看板", short: "看板", icon: LayoutDashboard, roles: ["ADMIN", "TEACHER"] },
   { key: "students", label: "学生档案", short: "档案", icon: Users, roles: ["ADMIN", "TEACHER"] },
   { key: "scores", label: "成绩管理", short: "成绩", icon: ClipboardList, roles: ["ADMIN", "TEACHER"] },
-  { key: "attendance", label: "出勤管理", short: "出勤", icon: CalendarCheck, roles: ["ADMIN", "TEACHER"] },
-  { key: "quality", label: "素质发展", short: "素质", icon: Sprout, roles: ["ADMIN", "TEACHER"] },
   { key: "portal", label: "我的学业", short: "我的", icon: BookOpenCheck, roles: ["STUDENT"] },
   { key: "settings", label: "系统设置", short: "设置", icon: Settings, roles: ["ADMIN", "TEACHER"] },
 ] as const;
@@ -120,7 +116,7 @@ export default function App() {
     <div className="min-h-dvh bg-background">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex items-center gap-2.5 px-5 py-5">
-          <span className="grid size-9 place-items-center rounded-xl bg-primary/12 text-primary">
+          <span className="brand-band grid size-9 place-items-center rounded-xl text-white shadow-soft">
             <GraduationCap className="size-5" />
           </span>
           <div className="min-w-0">
@@ -142,7 +138,7 @@ export default function App() {
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                 }`}
               >
-                {active ? <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" /> : null}
+                {active ? <span className="brand-band absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full" /> : null}
                 <Icon className="size-4" /> {label}
               </button>
             );
@@ -173,6 +169,7 @@ export default function App() {
       <div className="flex min-h-dvh flex-col md:pl-60">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur md:px-6">
           <GraduationCap className="size-5 text-primary md:hidden" />
+          <span className="brand-band hidden size-2 shrink-0 rounded-full md:block" aria-hidden="true" />
           <span className="text-sm font-semibold md:text-base">{current?.label}</span>
           <ThemeToggle className="md:hidden" />
           <Dialog open={pwOpen} onOpenChange={setPwOpen}>
@@ -196,11 +193,9 @@ export default function App() {
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 md:px-6 md:pb-8">
-          {current?.key === "dashboard" && <Dashboard onChangeTab={setTab} />}
+          {current?.key === "dashboard" && <Dashboard onChangeTab={setTab} isAdmin={isAdmin} />}
           {current?.key === "students" && <Students isAdmin={isAdmin} />}
           {current?.key === "scores" && <Scores isAdmin={isAdmin} />}
-          {current?.key === "attendance" && <Attendance />}
-          {current?.key === "quality" && <Quality />}
           {current?.key === "portal" && <Portal />}
           {current?.key === "settings" && <SettingsPage isAdmin={isAdmin} me={account} onMeChanged={setAccount} />}
         </main>

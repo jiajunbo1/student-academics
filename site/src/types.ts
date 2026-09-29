@@ -5,8 +5,14 @@ export interface Me {
   lockedUntil: string | null; lastLoginAt: string | null; createdAt: string | null;
 }
 
+export interface TeachingAssignment {
+  subjectId: string; classId: string;
+  subjectName?: string; className?: string;
+}
+
 export interface AccountRow extends Me {
   studentName: string; studentNo: string; className: string;
+  assignments: TeachingAssignment[]; subjectNames: string[]; classNames: string[];
 }
 
 export interface ClassRow {
@@ -30,40 +36,29 @@ export interface ScoreRow {
   score: number; created_at?: string;
 }
 
-export interface AttendanceRow {
-  id: string; student_id: string; att_date: string; status: string;
-  remark: string | null; studentName?: string; className?: string;
-}
-
-export interface DisciplineRow {
-  id: string; student_id: string; type: string; content: string;
-  event_date: string; studentName?: string; className?: string;
-}
-
-export interface ActivityRow {
-  id: string; student_id: string; name: string; category: string;
-  event_date: string; studentName?: string; className?: string;
-}
-
-export interface ReviewRow {
-  id: string; student_id: string; user_id: string | null; teacher_name: string | null;
-  term: string; content: string; created_at: string;
-  studentName?: string; className?: string;
-}
-
 export interface SheetRow {
   studentId: string; studentNo: string; studentName: string; className: string;
   cells: Record<string, number | null>; total: number; count: number;
   avg: number; classRank: number;
 }
 
+export interface SubjectTrend {
+  subject: { id: string; name: string };
+  exams: { id: string; name: string; examDate: string }[];
+  classes: { id: string; name: string }[];
+  /** classId -> examId -> 班级平均分（分） */
+  classAvg: Record<string, Record<string, number | null>>;
+  students: {
+    id: string; name: string; studentNo: string; classId: string; className: string;
+    /** examId -> 得分（十分之一分） */
+    scores: Record<string, number | null>;
+  }[];
+}
+
 export interface DashboardData {
   counts: { students: number; classes: number; teachers: number; exams: number };
   lastExam: { id: string; name: string; exam_date: string } | null;
   subjectAvgs: { name: string; avg: number }[];
-  attStats: { name: string; value: number }[];
-  recentDiscipline: (DisciplineRow & { studentName: string })[];
-  recentActivity: (ActivityRow & { studentName: string })[];
 }
 
 export interface PortalRecord {
@@ -79,10 +74,4 @@ export interface PortalData {
   };
   subjects: { id: string; name: string }[];
   records: PortalRecord[];
-  attendances: AttendanceRow[];
-  attSummary: { name: string; value: number }[];
-  disciplines: DisciplineRow[];
-  discSummary: { name: string; value: number }[];
-  activities: ActivityRow[];
-  reviews: ReviewRow[];
 }

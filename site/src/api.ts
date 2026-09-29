@@ -26,6 +26,9 @@ const MESSAGES: Record<string, string> = {
   cannot_demote_self: '不能把自己当前使用的管理员账号降级。',
   student_required: '学生账号需要关联一名学生。',
   student_not_allowed: '教师与管理员账号不关联学生。',
+  assignments_not_allowed: '只有教师账号需要勾选任教科目与班级。',
+  invalid_assignment: '任教勾选无效，请重新选择科目与班级。',
+  out_of_scope: '该科目或班级不在你的任教范围内。',
   not_a_student: '该视图仅对学生账号开放。',
   access_denied: '没有访问权限，请联系管理员确认账号角色。',
   forbidden: '当前账号没有该操作权限。',
@@ -33,6 +36,10 @@ const MESSAGES: Record<string, string> = {
   not_found: '请求的资源或操作不存在。',
   already_seeded: '系统中已有学生数据，不能重复导入演示数据。',
   class_not_empty: '该班级下还有学生，请先转出学生。',
+  class_not_found: '班级名称不存在，请先在「系统设置」中创建该班级。',
+  student_not_found: '学号未找到对应的学生（或不在你的任教班级内）。',
+  subject_not_found: '科目名称不存在，请与「成绩录入」中的科目名保持一致。',
+  duplicate_row: '同一份文件里学号重复，请保留一行。',
   invalid_score: '分数需为 0-150 之间的数字。',
   invalid_date: '日期格式不正确。',
   invalid_id: '选择了无效的记录，请刷新后重试。',
@@ -122,6 +129,9 @@ export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) return e.message;
   return MESSAGES.request_failed;
 }
+
+// 导入预览要按服务端返回的逐行错误码本地化，错误码与文案统一维护在这里
+export const errorText = (code: string): string => MESSAGES[code] ?? MESSAGES.request_failed;
 
 // 分数以十分之一分为单位存储（112.5 -> 1125）
 export const fmtScore = (tenths: number | null | undefined): string =>

@@ -60,9 +60,6 @@ const ARR = (v, max) => { if (!Array.isArray(v) || v.length > max) throw new App
 
 const GENDERS = ['男', '女'];
 const STUDENT_STATUS = ['在读', '休学', '转班', '毕业'];
-const ATT_STATUS = ['出勤', '迟到', '早退', '请假', '缺勤'];
-const DISC_TYPES = ['奖励', '惩罚'];
-const ACT_CATS = ['社团', '志愿', '体育', '竞赛'];
 
 // ---------- 查询工具 ----------
 async function db(promise, code = 'db_error') {
@@ -91,10 +88,49 @@ async function currentAccount(supabase, request) {
 async function principal(supabase, request) {
   const account = await currentAccount(supabase, request);
   if (account.must_change) throw new AppError('password_change_required', 403);
-  return { account };
+  return { account, scope: await loadScope(supabase, account) };
 }
 const requireAdmin = (p) => { if (p.account.role !== 'ADMIN') throw new AppError('forbidden', 403); };
 const requireStaff = (p) => { if (p.account.role === 'STUDENT') throw new AppError('forbidden', 403); };
+
+// ---------- 教师任教授权 ----------
+// teaching_assignments 一行 = 「该教师在该班教该科目」；管理员为全量，学生不走这套范围。
+async function loadScope(supabase, account) {
+  const scope = { all: account.role === 'ADMIN', subjectIds: new Set(), classIds: new Set(), pairs: new Set() };
+  if (account.role !== 'TEACHER') return scope;
+  const rows = await db(supabase.from('teaching_assignments').select('*').eq('account_id', account.id));
+  for (const r of rows) {
+    scope.subjectIds.add(r.subject_id);
+    scope.classIds.add(r.class_id);
+    scope.pairs.add(`${r.subject_id}|${r.class_id}`);
+  }
+  return scope;
+}
+const teachesSubject = (scope, subjectId) => scope.all || scope.subjectIds.has(subjectId);
+const teachesClass = (scope, classId) => scope.all || scope.classIds.has(classId);
+const teachesPair = (scope, subjectId, classId) => scope.all || scope.pairs.has(`${subjectId}|${classId}`);
+
+// 授权条目校验：去重后的 {subjectId, classId} 列表；非教师角色必须为空。
+function normalizeAssignments(raw, role) {
+  const list = raw === null || raw === undefined ? [] : ARR(raw, 200);
+  if (list.length && role !== 'TEACHER') throw new AppError('assignments_not_allowed');
+  const out = new Set();
+  for (const a of list) {
+    if (!a || typeof a !== 'object') throw new AppError('invalid_assignment');
+    const subjectId = ID(a.subjectId); const classId = ID(a.classId);
+    out.add(`${subjectId}|${classId}`);
+  }
+  return [...out].map((k) => { const i = k.indexOf('|'); return { subjectId: k.slice(0, i), classId: k.slice(i + 1) }; });
+}
+
+async function replaceAssignments(supabase, accountId, rows) {
+  await db(supabase.from('teaching_assignments').delete().eq('account_id', accountId));
+  for (const r of rows) {
+    await db(supabase.from('teaching_assignments').insert({
+      id: crypto.randomUUID(), account_id: accountId, subject_id: r.subjectId, class_id: r.classId, created_at: nowIso(),
+    }));
+  }
+}
 
 // ---------- 认证动作 ----------
 async function actAuthStatus(supabase) {
@@ -142,19 +178,35 @@ async function actAuthChangePassword(supabase, request) {
 // ---------- 账号管理动作（仅管理员） ----------
 async function actAccountsList(supabase, request) {
   const p = await principal(supabase, request); requireAdmin(p);
-  const [rows, students, classes] = await Promise.all([
+  const [rows, students, classes, assignRows, subjects] = await Promise.all([
     db(supabase.from('accounts').select('*').order('created_at')),
     db(supabase.from('students').select('id,name,student_no,class_id')),
     db(supabase.from('classes').select('id,name')),
+    db(supabase.from('teaching_assignments').select('*')),
+    db(supabase.from('subjects').select('id,name').order('sort')),
   ]);
   const sm = new Map(students.map(s => [s.id, s]));
   const cn = new Map(classes.map(c => [c.id, c.name]));
+  const sn = new Map(subjects.map(s => [s.id, s.name]));
+  const byAccount = new Map();
+  for (const a of assignRows) {
+    const list = byAccount.get(a.account_id) || [];
+    list.push({
+      subjectId: a.subject_id, classId: a.class_id,
+      subjectName: sn.get(a.subject_id) || '', className: cn.get(a.class_id) || '',
+    });
+    byAccount.set(a.account_id, list);
+  }
   return ok({ accounts: rows.map(a => {
     const st = a.student_id ? sm.get(a.student_id) : null;
+    const assign = byAccount.get(a.id) || [];
     return {
       ...publicAccount(a),
       studentName: st ? st.name : '', studentNo: st ? st.student_no : '',
       className: st ? (cn.get(st.class_id) || '') : '',
+      assignments: assign,
+      subjectNames: [...new Set(assign.map(x => x.subjectName))].filter(Boolean),
+      classNames: [...new Set(assign.map(x => x.className))].filter(Boolean),
     };
   }) });
 }
@@ -171,6 +223,9 @@ async function actAccountsSave(supabase, request) {
   if (role === 'STUDENT' && !studentId) throw new AppError('student_required');
   if (role !== 'STUDENT' && studentId) throw new AppError('student_not_allowed');
   const password = typeof b.password === 'string' ? b.password : '';
+  // 只有显式提交 assignments 才改写授权；改角色、重置密码等动作不带该字段时保持原样。
+  const wantsAssign = Array.isArray(b.assignments);
+  const assignments = wantsAssign ? normalizeAssignments(b.assignments, role) : [];
   if (id) {
     const target = await findAccountById(supabase, id);
     if (!target) return fail('not_found', 404);
@@ -178,15 +233,19 @@ async function actAccountsSave(supabase, request) {
     const dup = await findAccountByUsername(supabase, username);
     if (dup && dup.id !== id) return fail('username_taken', 409);
     await db(supabase.from('accounts').update({ username, display_name: displayName, role, student_id: studentId }).eq('id', id));
+    if (role !== 'TEACHER') await replaceAssignments(supabase, id, []);
+    else if (wantsAssign) await replaceAssignments(supabase, id, assignments);
     if (password) {
       await setPassword(supabase, id, password, username, true);
       await dropAccountSessions(supabase, id);
     }
   } else {
     if (!password) throw new AppError('missing_field');
-    await createAccount(supabase, { username, displayName, role, password, studentId });
+    const created = await createAccount(supabase, { username, displayName, role, password, studentId });
+    if (assignments.length) await replaceAssignments(supabase, created.id, assignments);
+    return ok({ id: created.id });
   }
-  return ok({ id: id || null });
+  return ok({ id });
 }
 
 async function actAccountsStatus(supabase, request) {
@@ -211,6 +270,7 @@ async function actAccountsDelete(supabase, request) {
   if (!target) return fail('not_found', 404);
   await dropAccountSessions(supabase, id);
   await db(supabase.from('accounts').delete().eq('id', id));
+  await replaceAssignments(supabase, id, []);
   return ok();
 }
 
@@ -248,49 +308,47 @@ async function actAccountsSeedStudents(supabase, request) {
 
 // ---------- GET 动作 ----------
 async function actDashboard(supabase, request) {
-  requireStaff(await principal(supabase, request));
-  const [students, classes, adminCount, teacherCount, exams] = await Promise.all([
-    count(supabase, 'students'), count(supabase, 'classes'),
+  const p = await principal(supabase, request); requireStaff(p);
+  const scope = p.scope;
+  const [studentRows, classRows, adminCount, teacherCount, exams] = await Promise.all([
+    db(supabase.from('students').select('id,name,class_id')),
+    db(supabase.from('classes').select('id')),
     count(supabase, 'accounts', ['role', 'ADMIN']), count(supabase, 'accounts', ['role', 'TEACHER']),
     count(supabase, 'exams'),
   ]);
+  const students = scope.all ? studentRows : studentRows.filter(s => teachesClass(scope, s.class_id));
+  const classList = scope.all ? classRows : classRows.filter(c => teachesClass(scope, c.id));
   const teachers = adminCount + teacherCount;
+  const studentClass = new Map(studentRows.map(s => [s.id, s.class_id]));
   let lastExam = null, subjectAvgs = [], scoreRows = [];
   const examList = await db(supabase.from('exams').select('id,name,exam_date').order('exam_date', { ascending: false }));
   for (const e of examList) {
-    const rows = await db(supabase.from('scores').select('subject_id,score').eq('exam_id', e.id));
-    if (rows.length) { lastExam = e; scoreRows = rows; break; }
+    const rows = await db(supabase.from('scores').select('subject_id,student_id,score').eq('exam_id', e.id));
+    const mine = rows.filter(r => {
+      const cid = studentClass.get(r.student_id);
+      return cid !== undefined && teachesClass(scope, cid);
+    });
+    if (mine.length) { lastExam = e; scoreRows = mine; break; }
   }
   if (lastExam) {
     const subjects = await db(supabase.from('subjects').select('id,name').order('sort'));
     const agg = new Map();
     for (const r of scoreRows) {
+      if (!teachesSubject(scope, r.subject_id)) continue;
       const a = agg.get(r.subject_id) || { sum: 0, n: 0 };
       a.sum += r.score; a.n += 1; agg.set(r.subject_id, a);
     }
     subjectAvgs = subjects.filter(s => agg.has(s.id))
       .map(s => ({ name: s.name, avg: +(agg.get(s.id).sum / agg.get(s.id).n / 10).toFixed(1) }));
   }
-  const att = await db(supabase.from('attendance').select('status'));
-  const attMap = new Map();
-  for (const a of att) attMap.set(a.status, (attMap.get(a.status) || 0) + 1);
-  const attStats = ATT_STATUS.filter(s => attMap.has(s)).map(name => ({ name, value: attMap.get(name) }));
-  const [disc, act, studentRows] = await Promise.all([
-    db(supabase.from('disciplines').select('*').order('event_date', { ascending: false }).limit(5)),
-    db(supabase.from('activities').select('*').order('event_date', { ascending: false }).limit(5)),
-    db(supabase.from('students').select('id,name')),
-  ]);
-  const nameOf = new Map(studentRows.map(s => [s.id, s.name]));
   return ok({
-    counts: { students, classes, teachers, exams },
-    lastExam, subjectAvgs, attStats,
-    recentDiscipline: disc.map(d => ({ ...d, studentName: nameOf.get(d.student_id) || '' })),
-    recentActivity: act.map(a => ({ ...a, studentName: nameOf.get(a.student_id) || '' })),
+    counts: { students: students.length, classes: classList.length, teachers, exams },
+    lastExam, subjectAvgs,
   });
 }
 
 async function actClassesList(supabase, request) {
-  requireStaff(await principal(supabase, request));
+  const p = await principal(supabase, request); requireStaff(p);
   const [classes, students, staff] = await Promise.all([
     db(supabase.from('classes').select('*').order('grade').order('name')),
     db(supabase.from('students').select('id,class_id')),
@@ -299,17 +357,18 @@ async function actClassesList(supabase, request) {
   const cnt = new Map();
   for (const s of students) cnt.set(s.class_id, (cnt.get(s.class_id) || 0) + 1);
   const nameOf = new Map(staff.map(u => [u.id, u.display_name]));
-  return ok({ classes: classes.map(c => ({
+  return ok({ classes: classes.filter(c => teachesClass(p.scope, c.id)).map(c => ({
     ...c, studentCount: cnt.get(c.id) || 0, headTeacherName: c.head_user_id ? (nameOf.get(c.head_user_id) || '') : '',
   }) ) });
 }
 
 async function actStudentsList(supabase, request, params) {
-  requireStaff(await principal(supabase, request));
+  const p = await principal(supabase, request); requireStaff(p);
   const kw = params.get('kw') || '';
   const classId = params.get('classId') || '';
   const status = params.get('status') || '';
   let rows = await db(supabase.from('students').select('*').order('student_no'));
+  rows = rows.filter(r => teachesClass(p.scope, r.class_id));
   if (classId) { ID(classId); rows = rows.filter(r => r.class_id === classId); }
   if (status) { ONE_OF(status, STUDENT_STATUS); rows = rows.filter(r => r.status === status); }
   if (kw) rows = rows.filter(r => r.name.includes(kw) || r.student_no.includes(kw));
@@ -319,21 +378,18 @@ async function actStudentsList(supabase, request, params) {
 }
 
 async function actStudentsGet(supabase, request, params) {
-  requireStaff(await principal(supabase, request));
+  const p = await principal(supabase, request); requireStaff(p);
   const id = ID(params.get('id'));
   const student = await db(supabase.from('students').select('*').eq('id', id).maybeSingle());
   if (!student) return fail('not_found', 404);
-  const [scores, att, disc, act, reviews, classes] = await Promise.all([
+  if (!teachesClass(p.scope, student.class_id)) return fail('forbidden', 403);
+  const [scores, classes] = await Promise.all([
     db(supabase.from('scores').select('*').eq('student_id', id).order('created_at')),
-    db(supabase.from('attendance').select('*').eq('student_id', id).order('att_date', { ascending: false })),
-    db(supabase.from('disciplines').select('*').eq('student_id', id).order('event_date', { ascending: false })),
-    db(supabase.from('activities').select('*').eq('student_id', id).order('event_date', { ascending: false })),
-    db(supabase.from('reviews').select('*').eq('student_id', id).order('created_at', { ascending: false })),
     db(supabase.from('classes').select('id,name')),
   ]);
   return ok({
     student: { ...student, className: (classes.find(c => c.id === student.class_id) || {}).name || '' },
-    scores, attendances: att, disciplines: disc, activities: act, reviews,
+    scores: scores.filter(s => teachesPair(p.scope, s.subject_id, student.class_id)),
   });
 }
 
@@ -343,14 +399,10 @@ async function actPortalMe(supabase, request) {
   const p = await principal(supabase, request);
   const studentId = p.account.student_id;
   if (p.account.role !== 'STUDENT' || !studentId) return fail('not_a_student', 403);
-  const [student, subjects, exams, att, disc, act, reviews, classes] = await Promise.all([
+  const [student, subjects, exams, classes] = await Promise.all([
     db(supabase.from('students').select('*').eq('id', studentId).maybeSingle()),
     db(supabase.from('subjects').select('id,name').order('sort')),
     db(supabase.from('exams').select('id,name,exam_date,term').order('exam_date')),
-    db(supabase.from('attendance').select('*').eq('student_id', studentId).order('att_date', { ascending: false })),
-    db(supabase.from('disciplines').select('*').eq('student_id', studentId).order('event_date', { ascending: false })),
-    db(supabase.from('activities').select('*').eq('student_id', studentId).order('event_date', { ascending: false })),
-    db(supabase.from('reviews').select('*').eq('student_id', studentId).order('created_at', { ascending: false })),
     db(supabase.from('classes').select('id,name')),
   ]);
   if (!student) return fail('not_found', 404);
@@ -385,34 +437,30 @@ async function actPortalMe(supabase, request) {
       classSize: peers.length,
     });
   }
-  const attSummary = ATT_STATUS.map(name => ({ name, value: att.filter(a => a.status === name).length }))
-    .filter(x => x.value > 0);
-  const discSummary = DISC_TYPES.map(name => ({ name, value: disc.filter(d => d.type === name).length }))
-    .filter(x => x.value > 0);
   return ok({
     student: {
       name: student.name, studentNo: student.student_no, gender: student.gender,
       enrollYear: student.enroll_year, status: student.status,
       className: (classes.find(c => c.id === student.class_id) || {}).name || '',
     },
-    subjects, records, attendances: att.slice(0, 30), attSummary,
-    disciplines: disc, discSummary, activities: act, reviews,
+    subjects, records,
   });
 }
 
 async function actRefData(supabase, request) {
-  requireStaff(await principal(supabase, request));
+  const p = await principal(supabase, request); requireStaff(p);
   const [subjects, exams] = await Promise.all([
     db(supabase.from('subjects').select('*').order('sort')),
     db(supabase.from('exams').select('*').order('exam_date', { ascending: false })),
   ]);
-  return ok({ subjects, exams });
+  return ok({ subjects: subjects.filter(s => teachesSubject(p.scope, s.id)), exams });
 }
 
 async function actScoreSheet(supabase, request, params) {
-  requireStaff(await principal(supabase, request));
+  const p = await principal(supabase, request); requireStaff(p);
   const examId = ID(params.get('examId'));
   const classId = params.get('classId') ? ID(params.get('classId')) : null;
+  if (classId && !teachesClass(p.scope, classId)) return fail('forbidden', 403);
   const [subjects, students, scores, classes] = await Promise.all([
     db(supabase.from('subjects').select('id,name').order('sort')),
     db(supabase.from('students').select('*').order('student_no')),
@@ -420,15 +468,19 @@ async function actScoreSheet(supabase, request, params) {
     db(supabase.from('classes').select('id,name')),
   ]);
   const scoreKey = new Map(scores.map(s => [`${s.student_id}|${s.subject_id}`, s.score]));
-  const present = subjects.filter(sub => scores.some(s => s.subject_id === sub.id));
   const cn = new Map(classes.map(c => [c.id, c.name]));
+  // 教师只出自己有任教科目的列；已选班级时按「科目×班级」精确收窄。
+  const present = subjects.filter(sub => scores.some(s => s.subject_id === sub.id)
+    && (p.scope.all || (classId ? teachesPair(p.scope, sub.id, classId) : teachesSubject(p.scope, sub.id))));
   const rows = [];
   for (const st of students) {
+    if (!teachesClass(p.scope, st.class_id)) continue;
     if (classId && st.class_id !== classId) continue;
-    if (!present.some(sub => scoreKey.has(`${st.id}|${sub.id}`))) continue;
+    const cols = present.filter(sub => teachesPair(p.scope, sub.id, st.class_id));
+    if (!cols.some(sub => scoreKey.has(`${st.id}|${sub.id}`))) continue;
     const cells = {};
     let total = 0; let n = 0;
-    for (const sub of present) {
+    for (const sub of cols) {
       const v = scoreKey.get(`${st.id}|${sub.id}`);
       cells[sub.id] = v === undefined ? null : v;
       if (v !== undefined) { total += v; n += 1; }
@@ -450,45 +502,50 @@ async function actScoreSheet(supabase, request, params) {
   return ok({ rows, subjects: present });
 }
 
-async function actAttendanceList(supabase, request, params) {
-  requireStaff(await principal(supabase, request));
-  const date = params.get('date') ? DATE(params.get('date')) : null;
+// 某一科目的历年走势：按考试 × 班级给出平均分，并附带每个学生的历次得分。
+// 只统计请求者任教范围内的班级，科目不在范围内直接拒绝。
+async function actSubjectTrend(supabase, request, params) {
+  const p = await principal(supabase, request); requireStaff(p);
+  const subjectId = ID(params.get('subjectId'));
   const classId = params.get('classId') ? ID(params.get('classId')) : null;
-  const [att, students, classes] = await Promise.all([
-    db(supabase.from('attendance').select('*').order('att_date', { ascending: false })),
-    db(supabase.from('students').select('id,name,student_no,class_id')),
-    db(supabase.from('classes').select('id,name')),
+  if (!teachesSubject(p.scope, subjectId)) return fail('out_of_scope', 403);
+  if (classId && !teachesClass(p.scope, classId)) return fail('forbidden', 403);
+  const [subject, exams, classes, students, scores] = await Promise.all([
+    db(supabase.from('subjects').select('id,name').eq('id', subjectId).maybeSingle()),
+    db(supabase.from('exams').select('id,name,exam_date').order('exam_date')),
+    db(supabase.from('classes').select('id,name').order('grade').order('name')),
+    db(supabase.from('students').select('id,name,student_no,class_id').order('student_no')),
+    db(supabase.from('scores').select('student_id,exam_id,score').eq('subject_id', subjectId)),
   ]);
-  const sm = new Map(students.map(s => [s.id, s]));
-  const cn = new Map(classes.map(c => [c.id, c.name]));
-  let rows = att;
-  if (date) rows = rows.filter(r => r.att_date === date);
-  if (classId) rows = rows.filter(r => (sm.get(r.student_id) || {}).class_id === classId);
-  rows.sort((a, b) => b.att_date.localeCompare(a.att_date) || (sm.get(a.student_id) || {}).student_no?.localeCompare((sm.get(b.student_id) || {}).student_no || ''));
-  return ok({ records: rows.map(r => {
-    const s = sm.get(r.student_id) || {};
-    return { ...r, studentName: s.name || '', className: cn.get(s.class_id) || '' };
-  }) });
-}
-
-async function actQualityList(supabase, request, params) {
-  requireStaff(await principal(supabase, request));
-  const classId = params.get('classId') ? ID(params.get('classId')) : null;
-  const [disc, act, reviews, students, classes] = await Promise.all([
-    db(supabase.from('disciplines').select('*').order('event_date', { ascending: false })),
-    db(supabase.from('activities').select('*').order('event_date', { ascending: false })),
-    db(supabase.from('reviews').select('*').order('created_at', { ascending: false })),
-    db(supabase.from('students').select('id,name,class_id')),
-    db(supabase.from('classes').select('id,name')),
-  ]);
-  const sm = new Map(students.map(s => [s.id, s]));
-  const cn = new Map(classes.map(c => [c.id, c.name]));
-  const keep = (r) => !classId || sm.get(r.student_id)?.class_id === classId;
-  const withNames = (r) => ({ ...r, studentName: (sm.get(r.student_id) || {}).name || '', className: cn.get(sm.get(r.student_id)?.class_id) || '' });
+  if (!subject) return fail('not_found', 404);
+  const scopeClasses = classes.filter(c => teachesClass(p.scope, c.id) && (!classId || c.id === classId));
+  const inScope = new Map(scopeClasses.map(c => [c.id, c]));
+  const pool = students.filter(s => inScope.has(s.class_id));
+  const byStudent = new Map(pool.map(s => [s.id, s]));
+  const agg = new Map(); // classId|examId -> { sum, n }
+  const studentScores = new Map(); // studentId -> { examId: tenths }
+  for (const r of scores) {
+    const st = byStudent.get(r.student_id);
+    if (!st || !teachesPair(p.scope, subjectId, st.class_id)) continue;
+    const m = studentScores.get(r.student_id) || {};
+    m[r.exam_id] = r.score; studentScores.set(r.student_id, m);
+    const key = `${st.class_id}|${r.exam_id}`;
+    const a = agg.get(key) || { sum: 0, n: 0 };
+    a.sum += r.score; a.n += 1; agg.set(key, a);
+  }
+  const hasData = exams.some(e => [...agg.keys()].some(k => k.endsWith(`|${e.id}`)));
+  const trendExams = hasData ? exams : [];
+  const avgOf = (cid, eid) => { const a = agg.get(`${cid}|${eid}`); return a ? +(a.sum / a.n / 10).toFixed(1) : null; };
   return ok({
-    disciplines: disc.filter(keep).map(withNames),
-    activities: act.filter(keep).map(withNames),
-    reviews: reviews.filter(keep).map(withNames),
+    subject,
+    exams: trendExams.map(e => ({ id: e.id, name: e.name, examDate: e.exam_date })),
+    classes: scopeClasses.map(c => ({ id: c.id, name: c.name })),
+    classAvg: Object.fromEntries(scopeClasses.map(c => [c.id, Object.fromEntries(trendExams.map(e => [e.id, avgOf(c.id, e.id)]))])),
+    students: pool.filter(s => studentScores.has(s.id)).map(s => ({
+      id: s.id, name: s.name, studentNo: s.student_no, classId: s.class_id,
+      className: inScope.get(s.class_id).name,
+      scores: Object.fromEntries(trendExams.map(e => [e.id, studentScores.get(s.id)[e.id] ?? null])),
+    })),
   });
 }
 
@@ -563,10 +620,18 @@ async function actExamsSave(supabase, request) {
 }
 
 async function actScoresSave(supabase, request) {
-  requireStaff(await principal(supabase, request)); // 教师可录入
+  const p = await principal(supabase, request); requireStaff(p); // 教师可录入自己任教科目
   const b = await readBody(request);
   const examId = ID(b.examId); const subjectId = ID(b.subjectId);
   const entries = ARR(b.entries, 100).map(e => ({ studentId: ID(e.studentId), tenths: e.score === null || e.score === undefined || e.score === '' ? null : TENTHS(SCORE_T(e.score)) }));
+  if (!p.scope.all) {
+    const students = await db(supabase.from('students').select('id,class_id'));
+    const cm = new Map(students.map(s => [s.id, s.class_id]));
+    for (const e of entries) {
+      const classId = cm.get(e.studentId);
+      if (!classId || !teachesPair(p.scope, subjectId, classId)) return fail('out_of_scope', 403);
+    }
+  }
   for (const e of entries) {
     const old = await db(supabase.from('scores').select('id')
       .eq('student_id', e.studentId).eq('subject_id', subjectId).eq('exam_id', examId).limit(1));
@@ -583,69 +648,6 @@ async function actScoresSave(supabase, request) {
   return ok({ saved: entries.length });
 }
 
-async function actAttendanceSave(supabase, request) {
-  requireStaff(await principal(supabase, request));
-  const b = await readBody(request);
-  const date = DATE(b.date);
-  const entries = ARR(b.entries, 100).map(e => ({
-    studentId: ID(e.studentId),
-    status: e.status ? ONE_OF(e.status, ATT_STATUS) : null,
-    remark: OPT_STR(e.remark, 200),
-  }));
-  for (const e of entries) {
-    const old = await db(supabase.from('attendance').select('id')
-      .eq('student_id', e.studentId).eq('att_date', date).limit(1));
-    if (!e.status) {
-      if (old && old.length) await db(supabase.from('attendance').delete().eq('id', old[0].id));
-      continue;
-    }
-    if (old && old.length) await db(supabase.from('attendance').update({ status: e.status, remark: e.remark }).eq('id', old[0].id));
-    else await db(supabase.from('attendance').insert({
-      id: crypto.randomUUID(), student_id: e.studentId, att_date: date,
-      status: e.status, remark: e.remark, created_at: nowIso(),
-    }));
-  }
-  return ok({ saved: entries.length });
-}
-
-async function actDisciplineSave(supabase, request) {
-  requireStaff(await principal(supabase, request));
-  const b = await readBody(request);
-  await db(supabase.from('disciplines').insert({
-    id: crypto.randomUUID(), student_id: ID(b.studentId), type: ONE_OF(b.type, DISC_TYPES),
-    content: STR(b.content, 200), event_date: DATE(b.eventDate), created_at: nowIso(),
-  }));
-  return ok();
-}
-
-async function actActivitySave(supabase, request) {
-  requireStaff(await principal(supabase, request));
-  const b = await readBody(request);
-  await db(supabase.from('activities').insert({
-    id: crypto.randomUUID(), student_id: ID(b.studentId), name: STR(b.name, 100),
-    category: ONE_OF(b.category, ACT_CATS), event_date: DATE(b.eventDate), created_at: nowIso(),
-  }));
-  return ok();
-}
-
-async function actReviewSave(supabase, request) {
-  const p = await principal(supabase, request); requireStaff(p);
-  const b = await readBody(request);
-  await db(supabase.from('reviews').insert({
-    id: crypto.randomUUID(), student_id: ID(b.studentId), user_id: p.account.id,
-    teacher_name: p.account.display_name, term: STR(b.term, 30), content: STR(b.content, 500),
-    created_at: nowIso(),
-  }));
-  return ok();
-}
-
-async function actSimpleDelete(supabase, request, table) {
-  requireStaff(await principal(supabase, request));
-  const b = await readBody(request);
-  await db(supabase.from(table).delete().eq('id', ID(b.id)));
-  return ok();
-}
-
 async function actDemoSeed(supabase, request) {
   const p = await principal(supabase, request); requireAdmin(p);
   const n = await count(supabase, 'students');
@@ -654,6 +656,137 @@ async function actDemoSeed(supabase, request) {
   for (const [table, rows] of Object.entries(data))
     await db(supabase.from(table).insert(rows), `seed_${table}`);
   return ok({ seeded: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v.length])) });
+}
+
+// ---------- 批量导入 ----------
+// CSV 解析在前端完成，这里只做服务端逐行校验；dryRun 默认 true，先给前端预览再确认落库。
+// 每行返回 { line, label, ok, action, errors:[{field,code}] }，无效行不影响其他行写入。
+const IMPORT_MAX_ROWS = 500;
+const CELL = (v) => (typeof v === 'string' ? v.trim() : v === null || v === undefined ? '' : String(v).trim());
+const E = (field, code) => ({ field, code });
+const DRY = (b) => b.dryRun !== false;
+const keep = (v, old) => (v === '' ? old : v);
+
+async function actImportStudents(supabase, request) {
+  const p = await principal(supabase, request); requireAdmin(p);
+  const b = await readBody(request);
+  const dryRun = DRY(b);
+  const updateExisting = b.updateExisting === true;
+  const raw = ARR(b.rows, IMPORT_MAX_ROWS);
+  if (!raw.length) throw new AppError('missing_field');
+  const [classes, students] = await Promise.all([
+    db(supabase.from('classes').select('id,name')),
+    db(supabase.from('students').select('id,student_no,name,gender,birth_date,class_id,enroll_year,address,phone,guardian_name,guardian_phone,status')),
+  ]);
+  const classByName = new Map(classes.map((c) => [c.name, c]));
+  const known = new Map(students.map((s) => [s.student_no, s]));
+  const items = [];
+  const seen = new Set();
+  for (const [i, r] of raw.entries()) {
+    const no = CELL(r.studentNo), name = CELL(r.name);
+    const gender = CELL(r.gender), status = CELL(r.status) || '在读';
+    const birth = CELL(r.birthDate), enroll = CELL(r.enrollYear);
+    const className = CELL(r.className);
+    const errors = [];
+    if (!no) errors.push(E('studentNo', 'missing_field'));
+    else if (no.length > 30) errors.push(E('studentNo', 'text_too_long'));
+    else if (seen.has(no)) errors.push(E('studentNo', 'duplicate_row'));
+    if (!name) errors.push(E('name', 'missing_field'));
+    else if (name.length > 50) errors.push(E('name', 'text_too_long'));
+    if (!GENDERS.includes(gender)) errors.push(E('gender', 'invalid_choice'));
+    if (birth && !DATE_RE.test(birth)) errors.push(E('birthDate', 'invalid_date'));
+    if (!STUDENT_STATUS.includes(status)) errors.push(E('status', 'invalid_choice'));
+    if (enroll && !/^\d{4}$/.test(enroll)) errors.push(E('enrollYear', 'invalid_number'));
+    const cls = classByName.get(className);
+    if (!className) errors.push(E('className', 'missing_field'));
+    else if (!cls) errors.push(E('className', 'class_not_found'));
+    if (no) seen.add(no);
+    const old = known.get(no);
+    const action = errors.length ? 'invalid' : !old ? 'create' : updateExisting ? 'update' : 'skip';
+    if (action === 'update' || action === 'create') {
+      const row = {
+        student_no: no, name, gender, birth_date: birth || null,
+        class_id: cls.id, enroll_year: enroll ? Number(enroll) : null,
+        address: CELL(r.address), phone: CELL(r.phone),
+        guardian_name: CELL(r.guardianName), guardian_phone: CELL(r.guardianPhone), status,
+      };
+      if (old) Object.assign(row, {
+        birth_date: birth || old.birth_date, address: keep(CELL(r.address), old.address),
+        phone: keep(CELL(r.phone), old.phone), guardian_name: keep(CELL(r.guardianName), old.guardian_name),
+        guardian_phone: keep(CELL(r.guardianPhone), old.guardian_phone),
+        enroll_year: enroll ? Number(enroll) : old.enroll_year,
+      });
+      if (!dryRun) {
+        if (old) await db(supabase.from('students').update(row).eq('id', old.id));
+        else await db(supabase.from('students').insert({ ...row, id: crypto.randomUUID(), created_at: nowIso() }));
+      }
+      known.set(no, { ...(old || {}), ...row });
+    }
+    items.push({ line: i + 1, label: `${no || '—'} ${name}`.trim(), ok: !errors.length, action, errors });
+  }
+  return importResult(dryRun, items);
+}
+
+async function actImportScores(supabase, request) {
+  const p = await principal(supabase, request); requireStaff(p);
+  const b = await readBody(request);
+  const dryRun = DRY(b);
+  const examId = ID(b.examId);
+  const raw = ARR(b.rows, IMPORT_MAX_ROWS);
+  if (!raw.length) throw new AppError('missing_field');
+  const [exam, subjects, students, scored] = await Promise.all([
+    db(supabase.from('exams').select('id,name').eq('id', examId).maybeSingle()),
+    db(supabase.from('subjects').select('id,name')),
+    db(supabase.from('students').select('id,student_no,name,class_id')),
+    db(supabase.from('scores').select('id,student_id,subject_id').eq('exam_id', examId)),
+  ]);
+  if (!exam) return fail('not_found', 404);
+  const pool = p.scope.all ? students : students.filter((s) => teachesClass(p.scope, s.class_id));
+  const byNo = new Map(pool.map((s) => [s.student_no, s]));
+  const bySubject = new Map(subjects.map((s) => [s.name, s]));
+  const hits = new Map(scored.map((r) => [`${r.student_id}|${r.subject_id}`, r.id]));
+  const items = [];
+  for (const [i, r] of raw.entries()) {
+    const no = CELL(r.studentNo), subjectName = CELL(r.subjectName), text = CELL(r.score);
+    const errors = [];
+    const st = byNo.get(no);
+    const subj = bySubject.get(subjectName);
+    if (!no) errors.push(E('studentNo', 'missing_field'));
+    else if (!st) errors.push(E('studentNo', 'student_not_found'));
+    if (!subjectName) errors.push(E('subjectName', 'missing_field'));
+    else if (!subj) errors.push(E('subjectName', 'subject_not_found'));
+    if (st && subj && !teachesPair(p.scope, subj.id, st.class_id)) errors.push(E('subjectName', 'out_of_scope'));
+    let tenths = null;
+    if (text !== '') {
+      const n = Number(text);
+      if (!Number.isFinite(n) || n < 0 || n > 150) errors.push(E('score', 'invalid_score'));
+      else tenths = Math.round(n * 10);
+    }
+    const writable = !errors.length && tenths !== null;
+    const action = errors.length ? 'invalid' : tenths === null ? 'skip' : hits.has(`${st.id}|${subj.id}`) ? 'update' : 'create';
+    if (writable && !dryRun) {
+      const hit = hits.get(`${st.id}|${subj.id}`);
+      if (hit) await db(supabase.from('scores').update({ score: tenths }).eq('id', hit));
+      else {
+        const added = await db(supabase.from('scores').insert({
+          id: crypto.randomUUID(), student_id: st.id, subject_id: subj.id,
+          exam_id: examId, score: tenths, created_at: nowIso(),
+        }).select('id'));
+        if (added?.[0]?.id) hits.set(`${st.id}|${subj.id}`, added[0].id);
+      }
+    }
+    items.push({ line: i + 1, label: `${no || '—'} ${st?.name ?? ''} · ${subjectName || '—'}`.trim(), ok: !errors.length, action, errors });
+  }
+  return importResult(dryRun, items, { examId, examName: exam.name });
+}
+
+const importResult = (dryRun, items, extra = {}) => {
+  const of = (a) => items.filter((x) => x.action === a).length;
+  return ok({
+    ...extra, dryRun, total: items.length,
+    created: of('create'), updated: of('update'), skipped: of('skip'), invalid: of('invalid'),
+    items,
+  });
 }
 
 // ---------- 路由 ----------
@@ -666,8 +799,7 @@ const GETS = new Map([
   ['students.get', actStudentsGet],
   ['refdata', actRefData],
   ['scores.sheet', actScoreSheet],
-  ['attendance.list', actAttendanceList],
-  ['quality.list', actQualityList],
+  ['scores.trend', actSubjectTrend],
   ['portal.me', actPortalMe],
   ['accounts.list', actAccountsList],
 ]);
@@ -678,10 +810,8 @@ const POSTS = new Map([
   ['accounts.delete', actAccountsDelete], ['accounts.seed-students', actAccountsSeedStudents],
   ['classes.save', actClassesSave], ['classes.delete', actClassesDelete],
   ['students.save', actStudentsSave], ['students.delete', actStudentsDelete],
-  ['exams.save', actExamsSave], ['scores.save', actScoresSave], ['attendance.save', actAttendanceSave],
-  ['discipline.save', actDisciplineSave], ['discipline.delete', (s, r) => actSimpleDelete(s, r, 'disciplines')],
-  ['activity.save', actActivitySave], ['activity.delete', (s, r) => actSimpleDelete(s, r, 'activities')],
-  ['review.save', actReviewSave], ['review.delete', (s, r) => actSimpleDelete(s, r, 'reviews')],
+  ['exams.save', actExamsSave], ['scores.save', actScoresSave],
+  ['import.students', actImportStudents], ['import.scores', actImportScores],
   ['demo.seed', actDemoSeed],
 ]);
 

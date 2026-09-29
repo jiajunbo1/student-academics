@@ -79,45 +79,5 @@ export function buildDemoData(newId, nowIso) {
     exam_id: exam(e), score: Math.round(v * 10), created_at: now,
   }));
 
-  const attDefs = [
-    ['20240101', '2025-03-25', '出勤', null], ['20240102', '2025-03-25', '出勤', null], ['20240103', '2025-03-25', '迟到', '迟到5分钟'],
-    ['20240104', '2025-03-25', '出勤', null], ['20240105', '2025-03-25', '请假', '病假'], ['20240106', '2025-03-25', '出勤', null],
-    ['20240101', '2025-03-26', '出勤', null], ['20240102', '2025-03-26', '缺勤', '未请假'], ['20240103', '2025-03-26', '出勤', null],
-    ['20240104', '2025-03-26', '早退', '身体不适'], ['20240105', '2025-03-26', '出勤', null], ['20240106', '2025-03-26', '出勤', null],
-  ];
-  const attendance = attDefs.map(([no, date, status, remark]) => ({
-    id: newId(), student_id: stu(no), att_date: date, status, remark, created_at: now,
-  }));
-
-  const discDefs = [
-    ['20240101', '奖励', '校级数学竞赛二等奖', '2024-12-01'],
-    ['20240102', '奖励', '三好学生', '2025-01-20'],
-    ['20240103', '惩罚', '课堂玩手机，口头警告', '2025-03-10'],
-    ['20240105', '奖励', '志愿服务优秀个人', '2024-11-15'],
-  ];
-  const disciplines = discDefs.map(([no, type, content, date]) => ({
-    id: newId(), student_id: stu(no), type, content, event_date: date, created_at: now,
-  }));
-
-  const actDefs = [
-    ['20240101', '校园篮球联赛', '体育', '2024-10-15'],
-    ['20240102', '文学社读书分享', '社团', '2024-11-20'],
-    ['20240104', '社区环保志愿', '志愿', '2025-03-05'],
-    ['20240106', '机器人大赛', '竞赛', '2025-01-10'],
-  ];
-  const activities = actDefs.map(([no, name, category, date]) => ({
-    id: newId(), student_id: stu(no), name, category, event_date: date, created_at: now,
-  }));
-
-  const reviewDefs = [
-    ['20240101', '2024-2025学年第一学期', '学习踏实，理科思维突出，望加强英语积累。'],
-    ['20240102', '2024-2025学年第一学期', '文科素养好，认真负责，是老师得力助手。'],
-    ['20240103', '2024-2025学年第一学期', '数学天赋佳，需提升课堂自律。'],
-  ];
-  const reviews = reviewDefs.map(([no, term, content]) => ({
-    id: newId(), student_id: stu(no), user_id: null, teacher_name: '演示教师',
-    term, content, created_at: now,
-  }));
-
-  return { subjects, classes, students, exams, scores, attendance, disciplines, activities, reviews };
+  return { subjects, classes, students, exams, scores };
 }

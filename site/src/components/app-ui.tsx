@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { MonitorSmartphone, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -64,21 +64,93 @@ export function ThemeToggle({ className }: { className?: string }) {
 export function PageHeader({
   title,
   description,
+  eyebrow,
   children,
 }: {
   title: string;
   description?: string;
+  eyebrow?: ReactNode;
   children?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="page-head mb-4 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
+        {eyebrow ? <p className="brand-eyebrow">{eyebrow}</p> : null}
         <h1 className="text-xl font-semibold tracking-tight md:text-2xl">{title}</h1>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
     </div>
   );
+}
+
+/** 班级/科目色标用的 CSS 变量名 */
+export const MARK_COLOR_VARS = ["--class-1", "--class-2", "--class-3", "--class-4", "--class-5"];
+
+/** 班级/科目色标：色环、色点用 var()，SVG 图表要用解析后的真色 */
+export const MARK_COLORS = MARK_COLOR_VARS.map((v) => `var(${v})`);
+
+/**
+ * 按名称排序后顺序取色：班级数在色板容量内时保证不撞色，
+ * 且任何页面只要拿到同一份班级名单，取到的颜色都一致。
+ */
+export function useMarkColors(keys: string[]): (key: string) => string {
+  const signature = keys.join("|");
+  const order = useMemo(
+    () => [...new Set(signature ? signature.split("|") : [])].sort((a, b) => a.localeCompare(b, "zh-Hans-CN")),
+    [signature],
+  );
+  return useCallback(
+    (key: string) => {
+      const i = order.indexOf(key);
+      return MARK_COLORS[(i < 0 ? 0 : i) % MARK_COLORS.length];
+    },
+    [order],
+  );
+}
+
+/** 同 useMarkColors 的确定性取色，但返回可直接写进 SVG 的真色 */
+export function useMarkColorValues(keys: string[]): (key: string) => string {
+  const colorOf = useMarkColors(keys);
+  const C = useThemeColors(MARK_COLOR_VARS);
+  return useCallback(
+    (key: string) => C[colorOf(key).slice(4, -1)] || C["--class-1"] || "transparent",
+    [C, colorOf],
+  );
+}
+
+/** 班级色点：与 ClassMark 同色，用于班级名前的标识 */
+export function ClassDot({ color, className }: { color: string; className?: string }) {
+  return <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", className)} style={{ background: color }} />;
+}
+
+/** 班级色标头像：同班同色，列表、抽屉与花名册共用 */
+export function ClassMark({ name, color, large }: { name: string; color: string; large?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`grid shrink-0 place-items-center rounded-full font-semibold ${large ? "size-10 text-sm" : "size-6 text-[11px]"}`}
+      style={{ color, background: `color-mix(in oklab, ${color} 14%, transparent)` }}
+    >
+      {name.slice(0, 1)}
+    </span>
+  );
+}
+
+/** SVG 的 fill 属性不认 var()，图表取色要先从 CSS 变量解析出真实颜色 */
+export function useThemeColors(names: string[]): Record<string, string> {
+  const { resolved } = useTheme();
+  const key = names.join("|");
+  const [colors, setColors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const next: Record<string, string> = {};
+    for (const name of key.split("|")) {
+      next[name] = cs.getPropertyValue(name).trim() || "transparent";
+    }
+    setColors(next);
+  }, [resolved, key]);
+  return colors;
 }
 
 export function Panel({
@@ -125,6 +197,15 @@ const TONES = {
 export const TONE_CLASS = TONES;
 export type Tone = keyof typeof TONES;
 
+/** 语义色对应的 CSS 变量名，供图表按状态取色（配合 useThemeColors） */
+export const TONE_VAR: Record<Tone, string> = {
+  primary: "--primary",
+  success: "--success",
+  warning: "--warning",
+  info: "--info",
+  danger: "--destructive",
+};
+
 export function StatCard({
   icon: Icon,
   label,
@@ -150,10 +231,10 @@ export function StatCard({
         onClick && "hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
-      <Card className="border shadow-soft transition group-hover:border-primary/40">
+      <Card className="h-full border shadow-soft transition-colors hover:border-brand/45">
         <CardContent className="flex items-start gap-3 p-4">
-          <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", TONES[tone])}>
-            <Icon className="size-5" />
+          <span className={cn("grid size-9 shrink-0 place-items-center rounded-[calc(var(--radius)-2px)]", TONES[tone])}>
+            <Icon className="size-4.5" />
           </span>
           <div className="min-w-0">
             <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
@@ -175,13 +256,24 @@ export function scoreTenthsTone(tenths: number, maxTenths = 1500): Tone {
   return "danger";
 }
 
+/** 分数热力底色：优秀偏绿、及格偏蓝、待提高偏红，扫一眼就能定位偏弱科目 */
+const HEAT_CLASS: Record<Tone, string> = {
+  success: "bg-success/14",
+  info: "bg-info/12",
+  warning: "bg-warning/14",
+  primary: "bg-primary/12",
+  danger: "bg-destructive/14",
+};
+
 export function ScoreText({
   tenths,
   max = 1500,
+  heat,
   className,
 }: {
   tenths: number | null | undefined;
   max?: number;
+  heat?: boolean;
   className?: string;
 }) {
   if (tenths === null || tenths === undefined) {
@@ -190,7 +282,14 @@ export function ScoreText({
   const tone = scoreTenthsTone(tenths, max);
   const text = tone === "danger" ? "text-destructive" : tone === "success" ? "text-success" : "text-foreground";
   return (
-    <span className={cn("font-semibold tabular-nums", text, className)}>
+    <span
+      className={cn(
+        "font-semibold tabular-nums",
+        text,
+        heat && cn("inline-flex min-w-14 justify-end rounded-[calc(var(--radius)-4px)] px-1.5 py-0.5", HEAT_CLASS[tone]),
+        className,
+      )}
+    >
       {(tenths / 10).toFixed(1)}
       {tone === "danger" ? <span className="ml-1 text-[10px] font-normal">待提高</span> : null}
     </span>
@@ -209,14 +308,6 @@ export function Pill({ tone = "info", children }: { tone?: Tone; children: React
     </span>
   );
 }
-
-export const ATTENDANCE_TONE: Record<string, Tone> = {
-  出勤: "success",
-  迟到: "warning",
-  早退: "warning",
-  请假: "info",
-  缺勤: "danger",
-};
 
 export const STUDENT_STATUS_TONE: Record<string, Tone> = {
   在读: "success",
