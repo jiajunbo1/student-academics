@@ -5,6 +5,7 @@ import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
 
 function Dialog({
@@ -55,6 +56,42 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  const mobile = useIsMobile()
+  // 窄屏整体改为底部抽屉：贴底、顶部圆角 + 抓手、毛玻璃外壳，页脚粘底常驻
+  if (mobile) {
+    return (
+      <DialogPortal data-slot="dialog-portal">
+        <DialogOverlay />
+        <DialogPrimitive.Content
+          data-slot="dialog-content"
+          className={cn(
+            // 外壳只管定位与玻璃质感，滚动交给内层，伪元素折射层才不会被滚走
+            "glass-panel fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[var(--radius-sheet)] border-t bg-background/92 shadow-sheet backdrop-blur-2xl duration-300 outline-none",
+            "data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-full data-[state=open]:fade-in-0",
+            "data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-full data-[state=closed]:fade-out-0"
+          )}
+          {...props}
+        >
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-[var(--sheet-pad-b)]">
+            <div className="glass-chrome sticky top-0 z-20 -mx-4 flex items-center justify-center pt-2 pb-1">
+              <span aria-hidden="true" className="h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
+              {showCloseButton && (
+                <DialogPrimitive.Close
+                  data-slot="dialog-close"
+                  className="absolute right-2.5 rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
+              )}
+            </div>
+            {children}
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    )
+  }
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -82,10 +119,15 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  const mobile = useIsMobile()
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn(
+        "flex flex-col gap-2",
+        mobile ? "shrink-0 text-left" : "text-center sm:text-left",
+        className
+      )}
       {...props}
     />
   )
@@ -99,11 +141,15 @@ function DialogFooter({
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
 }) {
+  const mobile = useIsMobile()
   return (
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        mobile
+          // 粘底操作条：半透明磨砂 + 安全区留白，长表单滚到底也始终能点保存
+          ? "glass-chrome sticky bottom-0 z-20 -mx-4 -mb-[var(--sheet-pad-b)] mt-auto flex flex-row items-center gap-2 border-t px-4 pt-3 pb-[calc(0.75rem+var(--safe-bottom))] [&>button]:min-h-11 [&>button]:flex-1 [&>p]:min-w-0 [&>p]:flex-1"
+          : "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}

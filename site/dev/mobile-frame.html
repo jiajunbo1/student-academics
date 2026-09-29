@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>窄屏验收台</title>
+    <style>
+      body { margin: 0; background: #20242c; font: 13px/1.4 system-ui, sans-serif; color: #dde3ec; }
+      header { display: flex; gap: 8px; align-items: center; padding: 10px 14px; }
+      header button { padding: 4px 10px; border-radius: 6px; border: 1px solid #4a5364; background: #2b313c; color: inherit; cursor: pointer; }
+      header button[aria-pressed="true"] { background: #4b8fe0; border-color: #4b8fe0; color: #fff; }
+      #stage { display: flex; justify-content: center; padding: 0 14px 18px; }
+      iframe { background: #fff; border: 1px solid #4a5364; border-radius: 14px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span>视口</span>
+      <button data-w="390" data-h="844" aria-pressed="true">390×844</button>
+      <button data-w="768" data-h="900" aria-pressed="false">768×900</button>
+      <button data-w="1280" data-h="800" aria-pressed="false">1280×800</button>
+      <span id="hint">与 5288 同源，已登录状态直接复用</span>
+    </header>
+    <div id="stage"><iframe id="f" src="/" width="390" height="844" title="app"></iframe></div>
+    <script>
+      const frame = document.getElementById("f");
+      document.querySelectorAll("header button").forEach((b) => {
+        b.onclick = () => {
+          document.querySelectorAll("header button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+          frame.style.width = b.dataset.w + "px";
+          frame.style.height = b.dataset.h + "px";
+          frame.setAttribute("width", b.dataset.w);
+          frame.setAttribute("height", b.dataset.h);
+        };
+      });
+      frame.style.width = "390px";
+      frame.style.height = "844px";
+    </script>
+  </body>
+</html>

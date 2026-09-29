@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { downloadCsv, ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText,
-  TableSkeleton, Toolbar, useMarkColors, useMarkColorValues, useThemeColors, type SelectOption,
+  CardList, ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText,
+  TableSkeleton, Toolbar, trendDomain, useMarkColors, useMarkColorValues, useThemeColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, Exam, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
 
@@ -140,7 +140,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div>
+    <div className="page-in">
       <PageHeader
         title="成绩管理"
         eyebrow={classId ? (classOptions.find((c) => c.value === classId)?.label ?? "班级") : isAdmin ? "全校" : "任教范围"}
@@ -152,8 +152,8 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       </PageHeader>
 
       <Toolbar>
-        <FilterSelect value={examId} onChange={setExamId} options={examOptions} ariaLabel="选择考试" />
-        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel={isAdmin ? "全部班级" : "任教班级"} ariaLabel="按班级筛选" />
+        <FilterSelect blockOnMobile value={examId} onChange={setExamId} options={examOptions} ariaLabel="选择考试" />
+        <FilterSelect blockOnMobile value={classId} onChange={setClassId} options={classOptions} allLabel={isAdmin ? "全部班级" : "任教班级"} ariaLabel="按班级筛选" />
         {sheet ? <Pill tone="info">已录 {filledCount} / {sheet.rows.length} 人</Pill> : null}
       </Toolbar>
 
@@ -175,71 +175,109 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                 description="切换到「成绩录入」选择科目并批量填入分数，保存后这里会自动出现排名。"
               />
             ) : (
-              <div className="overflow-x-auto">
-                <Table className="responsive-table data-table">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>名次</TableHead>
-                      <TableHead>学生</TableHead>
-                      <TableHead>班级</TableHead>
-                      {sheet.subjects.map((s) => (
-                        <TableHead key={s.id} className="text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                            title={`查看 ${s.name} 历年成绩走势`}
-                            onClick={() => setTrendFor(s)}
-                          >
-                            {s.name}
-                            <LineChartIcon className="size-3.5 text-muted-foreground" />
-                          </button>
-                        </TableHead>
-                      ))}
-                      <TableHead className="text-right">总分</TableHead>
-                      <TableHead className="text-right">平均</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sheet.rows.map((r) => (
-                      <TableRow key={r.studentId}>
-                        <TableCell data-label="名次">
+              <>
+                <CardList className="md:hidden">
+                  {sheet.rows.map((r) => (
+                    <RowCard
+                      key={r.studentId}
+                      leading={<ClassMark name={r.studentName} color={colorOf(r.className)} large />}
+                      title={r.studentName}
+                      subtitle={`${r.studentNo} · ${r.className}`}
+                      right={
+                        <div className="flex flex-col items-end gap-1">
                           <Badge variant={r.classRank <= 3 ? "default" : "outline"} className={r.classRank <= 3 ? "gap-1 font-mono" : "font-mono"}>
                             {r.classRank <= 3 && <Trophy className="size-3" />}{r.classRank}
                           </Badge>
-                        </TableCell>
-                        <TableCell data-label="学生" className="whitespace-nowrap">
-                          <span className="flex items-center gap-2">
-                            <ClassMark name={r.studentName} color={colorOf(r.className)} />
-                            <span className="font-medium">{r.studentName}</span>
-                            <span className="font-mono text-xs text-muted-foreground">{r.studentNo}</span>
+                          <span className="text-sm font-semibold tabular-nums">
+                            {(r.total / 10).toFixed(1)}
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">均 {r.avg}</span>
                           </span>
-                        </TableCell>
-                        <TableCell data-label="班级" className="text-muted-foreground">
-                          <span className="flex items-center gap-1.5">
-                            <ClassDot color={colorOf(r.className)} />
-                            {r.className}
-                          </span>
-                        </TableCell>
+                        </div>
+                      }
+                    >
+                      <div className="scroll-x -mx-1 flex gap-1.5 px-1 pb-1">
                         {sheet.subjects.map((s) => (
-                          <TableCell key={s.id} data-label={s.name} className="text-right"><ScoreText tenths={r.cells[s.id]} heat /></TableCell>
+                          <button
+                            key={s.id}
+                            type="button"
+                            title={`查看 ${s.name} 历年成绩走势`}
+                            onClick={() => setTrendFor(s)}
+                            className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg bg-muted/60 px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {s.name}
+                            <ScoreText tenths={r.cells[s.id]} heat className="text-xs" />
+                          </button>
                         ))}
-                        <TableCell data-label="总分" className="text-right"><span className="font-semibold tabular-nums">{(r.total / 10).toFixed(1)}</span></TableCell>
-                        <TableCell data-label="平均" className="text-right tabular-nums text-muted-foreground">{r.avg}</TableCell>
+                      </div>
+                    </RowCard>
+                  ))}
+                </CardList>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="data-table">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>名次</TableHead>
+                        <TableHead>学生</TableHead>
+                        <TableHead>班级</TableHead>
+                        {sheet.subjects.map((s) => (
+                          <TableHead key={s.id} className="text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                              title={`查看 ${s.name} 历年成绩走势`}
+                              onClick={() => setTrendFor(s)}
+                            >
+                              {s.name}
+                              <LineChartIcon className="size-3.5 text-muted-foreground" />
+                            </button>
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-right">总分</TableHead>
+                        <TableHead className="text-right">平均</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {sheet.rows.map((r) => (
+                        <TableRow key={r.studentId}>
+                          <TableCell>
+                            <Badge variant={r.classRank <= 3 ? "default" : "outline"} className={r.classRank <= 3 ? "gap-1 font-mono" : "font-mono"}>
+                              {r.classRank <= 3 && <Trophy className="size-3" />}{r.classRank}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="flex items-center gap-2">
+                              <ClassMark name={r.studentName} color={colorOf(r.className)} />
+                              <span className="font-medium">{r.studentName}</span>
+                              <span className="font-mono text-xs text-muted-foreground">{r.studentNo}</span>
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              <ClassDot color={colorOf(r.className)} />
+                              {r.className}
+                            </span>
+                          </TableCell>
+                          {sheet.subjects.map((s) => (
+                            <TableCell key={s.id} className="text-right"><ScoreText tenths={r.cells[s.id]} heat /></TableCell>
+                          ))}
+                          <TableCell className="text-right"><span className="font-semibold tabular-nums">{(r.total / 10).toFixed(1)}</span></TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{r.avg}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </Panel>
         </TabsContent>
         <TabsContent value="entry" className="mt-4">
           <Card className="border shadow-soft">
-            <CardContent className="flex flex-wrap items-center gap-2 p-3 md:p-4">
+            <CardContent className="flex flex-col gap-2.5 p-3 md:flex-row md:flex-wrap md:items-center md:p-4">
               <span className="text-sm text-muted-foreground">录入科目</span>
-              <FilterSelect value={subjectId} onChange={setSubjectId} options={subjectOptions} ariaLabel="选择录入科目" />
+              <FilterSelect value={subjectId} onChange={setSubjectId} options={subjectOptions} ariaLabel="选择录入科目" className="md:w-40" />
               <span className="text-xs text-muted-foreground">满分 150，支持 0.5 分粒度；清空并保存即删除该成绩</span>
-              <Button size="sm" className="ml-auto w-full sm:w-auto" disabled={saving || !students.length} onClick={() => void saveAll()}>
+              <Button className="min-h-11 w-full md:ml-auto md:w-auto" size="sm" disabled={saving || !students.length} onClick={() => void saveAll()}>
                 {saving ? "保存中…" : `保存 ${subject?.name ?? ""} 成绩`}
               </Button>
             </CardContent>
@@ -253,32 +291,53 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
             {loading ? <TableSkeleton rows={6} cols={3} /> : !students.length ? (
               <EmptyState icon={ClipboardList} title="当前班级筛选下没有学生" description="请先在「学生档案」中录入或切换到正确班级。" />
             ) : (
-              <div className="overflow-x-auto">
-                <Table className="responsive-table data-table">
-                  <TableHeader><TableRow><TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead className="w-40">分数</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {students.map((s) => {
-                      const filled = (draft[s.id] ?? "").trim() !== "";
-                      return (
-                      <TableRow key={s.id}>
-                        <TableCell data-label="学号" className="font-mono text-xs">{s.student_no}</TableCell>
-                        <TableCell data-label="姓名" className="font-medium">
-                          <span className="flex items-center gap-2">
-                            <ClassMark name={s.name} color={colorOf(s.className ?? "")} />
-                            {s.name}
-                          </span>
-                        </TableCell>
-                        <TableCell data-label="分数">
-                          <Input inputMode="decimal" placeholder="—" className={cn("w-full sm:w-28", !filled && "bg-warning/8")}
+              <>
+                <CardList className="md:hidden">
+                  {students.map((s) => {
+                    const filled = (draft[s.id] ?? "").trim() !== "";
+                    return (
+                      <RowCard
+                        key={s.id}
+                        leading={<ClassMark name={s.name} color={colorOf(s.className ?? "")} />}
+                        title={s.name}
+                        subtitle={s.student_no}
+                        right={
+                          <Input inputMode="decimal" placeholder="—" aria-label={`${s.name} 分数`}
+                            className={cn("w-24 max-md:h-11", !filled && "bg-warning/8")}
                             value={draft[s.id] ?? ""}
                             onChange={(e) => setDraft({ ...draft, [s.id]: e.target.value })} />
-                        </TableCell>
-                      </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                        }
+                      />
+                    );
+                  })}
+                </CardList>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="data-table">
+                    <TableHeader><TableRow><TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead className="w-40">分数</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {students.map((s) => {
+                        const filled = (draft[s.id] ?? "").trim() !== "";
+                        return (
+                        <TableRow key={s.id}>
+                          <TableCell className="font-mono text-xs">{s.student_no}</TableCell>
+                          <TableCell className="font-medium">
+                            <span className="flex items-center gap-2">
+                              <ClassMark name={s.name} color={colorOf(s.className ?? "")} />
+                              {s.name}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Input inputMode="decimal" placeholder="—" className={cn("w-full sm:w-28", !filled && "bg-warning/8")}
+                              value={draft[s.id] ?? ""}
+                              onChange={(e) => setDraft({ ...draft, [s.id]: e.target.value })} />
+                          </TableCell>
+                        </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </Panel>
         </TabsContent>
@@ -426,6 +485,15 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
     我的成绩: student.scores[e.id] == null ? null : +(student.scores[e.id]! / 10).toFixed(1),
     班级平均: data.classAvg[student.classId]?.[e.id] ?? null,
   }));
+  /** 学科满分 150：纵轴按实际分数撑开，只有一次考试时也不会挤成窄带 */
+  const classDomain = trendDomain(
+    (data?.classes ?? []).flatMap((c) => (data?.exams ?? []).map((e) => data?.classAvg[c.id]?.[e.id] ?? null)),
+    150,
+  );
+  const mineDomain = trendDomain(
+    mineRows.flatMap((r) => [r.我的成绩, r.班级平均]),
+    150,
+  );
   const studentDelta = !student || !data
     ? null
     : firstLastDelta(data.exams.map((e) => (student.scores[e.id] == null ? null : +(student.scores[e.id]! / 10).toFixed(1))));
@@ -441,7 +509,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
         <DialogHeader>
           <DialogTitle>{subject?.name ?? "科目"} · 历年成绩走势</DialogTitle>
           <DialogDescription>
-            按考试日期从早到晚排列，纵轴自动取范围，便于看清每一次的升降；无成绩的场次不连线。
+            按考试日期从早到晚排列，纵轴按分数区间留白，便于看清每一次的升降；无成绩的场次不连线。
           </DialogDescription>
         </DialogHeader>
 
@@ -483,7 +551,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
                   <LineChart data={classRows} margin={{ top: 6, right: 10, left: -14, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={C["--border"]} />
                     <XAxis dataKey="name" tick={axis} tickLine={false} axisLine={false} interval={0} />
-                    <YAxis tick={axis} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                    <YAxis tick={axis} tickLine={false} axisLine={false} domain={classDomain} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} 分`, ""]} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     {data.classes.map((c) => (
@@ -510,7 +578,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
                     <LineChart data={mineRows} margin={{ top: 6, right: 10, left: -14, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={C["--border"]} />
                       <XAxis dataKey="name" tick={axis} tickLine={false} axisLine={false} interval={0} />
-                      <YAxis tick={axis} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                      <YAxis tick={axis} tickLine={false} axisLine={false} domain={mineDomain} />
                       <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} 分`, ""]} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Line type="monotone" dataKey="我的成绩" stroke={C["--chart-1"]} strokeWidth={2.4} dot={{ r: 3 }} />

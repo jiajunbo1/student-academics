@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { cn } from "@/lib/utils";
-import { ClassDot, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, useMarkColors, type SelectOption } from "../components/app-ui";
+import { CardList, ClassDot, ClassMark, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, useMarkColors, type SelectOption } from "../components/app-ui";
 import { ChangePasswordForm } from "../components/auth-screens";
 import type { AccountRow, ClassRow, Me, Subject } from "../types";
 
@@ -121,20 +121,20 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
   const colorOf = useMarkColors(classes.map((c) => c.name));
 
   return (
-    <div className="space-y-4">
+    <div className="page-in space-y-4">
       <PageHeader title="系统设置" eyebrow="后台维护" description="维护班级、登录账号与初始化演示数据。" />
 
       <Panel
         title="班级管理"
         description={isAdmin ? "创建或删除班级；班级下还有学生时不能删除。" : "仅管理员可以增删班级。"}
         action={<Badge variant="secondary" className="font-normal">{classes.length} 个班级</Badge>}
-        contentClassName="space-y-3 p-4"
+        contentClassName="space-y-3 p-3 md:p-4"
       >
         {isAdmin && (
           <div className="flex flex-wrap gap-2">
-            <Input placeholder="班级名，如 高一(4)班" value={newClass.name} onChange={(e) => setNewClass({ ...newClass, name: e.target.value })} className="h-9 w-full sm:w-52" />
-            <FilterSelect value={newClass.grade} onChange={(v) => setNewClass({ ...newClass, grade: v })} options={GRADE_OPTIONS} ariaLabel="年级" />
-            <Button size="sm" disabled={busy} onClick={() => { if (!newClass.name) { toast.error("请填写班级名"); return; } void run("classes.save", newClass, "班级已创建"); setNewClass({ ...newClass, name: "" }); }}>
+            <Input placeholder="班级名，如 高一(4)班" value={newClass.name} onChange={(e) => setNewClass({ ...newClass, name: e.target.value })} className="h-10 w-full sm:h-9 sm:w-52" />
+            <FilterSelect blockOnMobile value={newClass.grade} onChange={(v) => setNewClass({ ...newClass, grade: v })} options={GRADE_OPTIONS} ariaLabel="年级" />
+            <Button size="sm" className="min-h-10 flex-1 md:flex-none" disabled={busy} onClick={() => { if (!newClass.name) { toast.error("请填写班级名"); return; } void run("classes.save", newClass, "班级已创建"); setNewClass({ ...newClass, name: "" }); }}>
               <Plus /> 新建班级
             </Button>
           </div>
@@ -142,31 +142,50 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
         {loading ? <p className="py-6 text-center text-sm text-muted-foreground">加载中…</p> : !classes.length ? (
           <EmptyState icon={Building2} title="还没有班级" description={isAdmin ? "先创建一个班级，学生档案才能归属到班。" : "请联系管理员创建班级。"} />
         ) : (
-          <div className="overflow-x-auto">
-            <Table className="responsive-table data-table">
-              <TableHeader><TableRow><TableHead>班级</TableHead><TableHead>年级</TableHead><TableHead>人数</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {classes.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell data-label="班级" className="font-medium">
-                      <span className="flex items-center gap-1.5">
-                        <ClassDot color={colorOf(c.name)} />
-                        {c.name}
-                      </span>
-                    </TableCell>
-                    <TableCell data-label="年级">{c.grade}</TableCell>
-                    <TableCell data-label="人数"><span className="tabular-nums">{c.studentCount}</span> 人</TableCell>
-                    <TableCell data-label="操作" className="text-right">
-                      {isAdmin && (
-                        <Button size="icon-xs" variant="ghost" className="size-7 text-destructive" aria-label="删除班级" disabled={busy}
-                          onClick={() => void run("classes.delete", { id: c.id }, "班级已删除")}><Trash2 className="size-4" /></Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            <CardList className="md:hidden">
+              {classes.map((c) => (
+                <RowCard
+                  key={c.id}
+                  leading={<ClassMark name={c.name} color={colorOf(c.name)} large />}
+                  title={c.name}
+                  subtitle={c.grade}
+                  right={<span className="text-sm"><span className="font-semibold tabular-nums">{c.studentCount}</span> 人</span>}
+                  actions={isAdmin ? (
+                    <Button size="sm" variant="ghost" className="text-destructive" disabled={busy}
+                      onClick={() => void run("classes.delete", { id: c.id }, "班级已删除")}>
+                      <Trash2 className="size-4" /> 删除班级
+                    </Button>
+                  ) : undefined}
+                />
+              ))}
+            </CardList>
+            <div className="hidden overflow-x-auto md:block">
+              <Table className="data-table">
+                <TableHeader><TableRow><TableHead>班级</TableHead><TableHead>年级</TableHead><TableHead>人数</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {classes.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">
+                        <span className="flex items-center gap-1.5">
+                          <ClassDot color={colorOf(c.name)} />
+                          {c.name}
+                        </span>
+                      </TableCell>
+                      <TableCell>{c.grade}</TableCell>
+                      <TableCell><span className="tabular-nums">{c.studentCount}</span> 人</TableCell>
+                      <TableCell className="text-right">
+                        {isAdmin && (
+                          <Button size="icon-xs" variant="ghost" className="size-7 text-destructive" aria-label="删除班级" disabled={busy}
+                            onClick={() => void run("classes.delete", { id: c.id }, "班级已删除")}><Trash2 className="size-4" /></Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </Panel>
 
@@ -241,21 +260,95 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
             {loading ? <p className="py-6 text-center text-sm text-muted-foreground">加载中…</p> : !accounts.length ? (
               <EmptyState icon={UserCog} title="还没有账号" description="至少保留当前管理员账号，教师与学生账号可在上方开通。" />
             ) : (
-              <div className="overflow-x-auto">
-                <Table className="responsive-table data-table">
+              <>
+                <CardList className="md:hidden">
+                  {accounts.map((a) => (
+                    <RowCard
+                      key={a.id}
+                      leading={
+                        <Avatar className="size-9"><AvatarFallback className="text-xs">{(a.displayName || "?").slice(0, 1)}</AvatarFallback></Avatar>
+                      }
+                      title={
+                        <span className="flex items-center gap-1.5">
+                          {a.displayName}
+                          {a.id === me?.id ? <Badge variant="outline" className="font-normal">我</Badge> : null}
+                        </span>
+                      }
+                      subtitle={<span className="font-mono">{a.username}</span>}
+                      right={
+                        a.id === me?.id ? (
+                          <Pill tone={ROLE_TONE[a.role]}>{ROLE_LABEL[a.role]}</Pill>
+                        ) : (
+                          <FilterSelect value={a.role} size="sm" ariaLabel={`${a.username} 的角色`} className="w-24"
+                            options={ACCOUNT_ROLE_OPTIONS} disabled={busy}
+                            onChange={(v) => void run("accounts.save", {
+                              id: a.id, username: a.username, displayName: a.displayName, role: v, studentId: a.studentId,
+                            }, "角色已更新")} />
+                        )
+                      }
+                      meta={
+                        <>
+                          {a.status !== "active" ? <Pill tone="danger">已停用</Pill>
+                            : a.mustChange ? <Pill tone="warning">待改初始密码</Pill>
+                            : a.lockedUntil ? <Pill tone="danger">锁定至 {a.lockedUntil.slice(11, 16)}</Pill>
+                            : <Pill tone="success">正常</Pill>}
+                          <span>{a.studentName ? `${a.studentName} · ${a.className}（${a.studentNo}）` : "未关联学生"}</span>
+                          <span className="tabular-nums">{a.lastLoginAt ? a.lastLoginAt.slice(0, 10) : "从未登录"}</span>
+                        </>
+                      }
+                      children={a.role === "TEACHER" ? (
+                        <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
+                          {!a.assignments.length ? <Pill tone="warning">未分配任教范围</Pill> : (
+                            <span className="min-w-0">
+                              <span className="text-foreground">{a.subjectNames.join("、")}</span>
+                              {" · "}
+                              {a.classNames.map((n, i) => (
+                                <span key={n} className="inline-flex items-center gap-1 align-middle">
+                                  {i > 0 ? "、" : ""}<ClassDot color={colorOf(n)} />{n}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          <Button size="icon-xs" variant="ghost" className="ml-auto size-8 shrink-0 max-md:size-11" aria-label="调整任教范围" disabled={busy}
+                            onClick={() => { setEditing(a); setEditPairs(new Set(a.assignments.map((x) => pairKey(x.subjectId, x.classId)))); }}>
+                            <ListChecks className="size-4" />
+                          </Button>
+                        </div>
+                      ) : undefined}
+                      actions={
+                        <>
+                          <Button size="sm" variant="ghost" aria-label="重置密码" disabled={busy}
+                            onClick={() => setResetFor(a)}><KeyRound className="size-4" /> 重置密码</Button>
+                          <Button size="sm" variant="ghost" aria-label={a.status === "active" ? "停用账号" : "启用账号"} disabled={busy}
+                            onClick={() => void run("accounts.status", { id: a.id, status: a.status === "active" ? "disabled" : "active" }, a.status === "active" ? "账号已停用" : "账号已启用")}>
+                            <Power className="size-4" /> {a.status === "active" ? "停用" : "启用"}
+                          </Button>
+                          <ConfirmButton variant="ghost" size="sm" className="ml-auto text-destructive" ariaLabel="删除账号" busy={busy}
+                            title="删除账号" confirmLabel="确认删除"
+                            description={<>确定删除账号 {a.username}（{a.displayName}）？该账号的登录会话会一并失效，学生档案与成绩不受影响。</>}
+                            onConfirm={() => void run("accounts.delete", { id: a.id }, "账号已删除")}>
+                            <Trash2 className="size-4" /> 删除
+                          </ConfirmButton>
+                        </>
+                      }
+                    />
+                  ))}
+                </CardList>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="data-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead>账号</TableHead><TableHead>角色</TableHead>
                       <TableHead className="hidden lg:table-cell">任教范围</TableHead>
                       <TableHead>关联学生</TableHead>
-                      <TableHead>状态</TableHead><TableHead className="hidden md:table-cell">最近登录</TableHead>
+                      <TableHead>状态</TableHead><TableHead>最近登录</TableHead>
                       <TableHead className="text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {accounts.map((a) => (
                       <TableRow key={a.id}>
-                        <TableCell data-label="账号">
+                        <TableCell>
                           <div className="flex items-center gap-2">
                             <Avatar className="size-7"><AvatarFallback className="text-[11px]">{(a.displayName || "?").slice(0, 1)}</AvatarFallback></Avatar>
                             <div className="min-w-0 text-left">
@@ -265,7 +358,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                             {a.id === me?.id ? <Badge variant="outline" className="font-normal">我</Badge> : null}
                           </div>
                         </TableCell>
-                        <TableCell data-label="角色" className="text-right md:text-left">
+                        <TableCell className="text-right md:text-left">
                           {a.id === me?.id ? (
                             <Pill tone={ROLE_TONE[a.role]}>{ROLE_LABEL[a.role]}</Pill>
                           ) : (
@@ -276,7 +369,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                               }, "角色已更新")} />
                           )}
                         </TableCell>
-                        <TableCell data-label="任教范围" className="hidden text-xs lg:table-cell">
+                        <TableCell className="hidden text-xs lg:table-cell">
                           {a.role !== "TEACHER" ? <span className="text-muted-foreground">—</span> : (
                             <div className="flex items-center gap-1.5">
                               {!a.assignments.length ? <Pill tone="warning">未分配</Pill> : (
@@ -297,19 +390,19 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                             </div>
                           )}
                         </TableCell>
-                        <TableCell data-label="关联学生" className="text-xs">
+                        <TableCell className="text-xs">
                           {a.studentName ? `${a.studentName} · ${a.className}（${a.studentNo}）` : <span className="text-muted-foreground">—</span>}
                         </TableCell>
-                        <TableCell data-label="状态" className="text-right md:text-left">
+                        <TableCell className="text-right md:text-left">
                           {a.status !== "active" ? <Pill tone="danger">已停用</Pill>
                             : a.mustChange ? <Pill tone="warning">待改初始密码</Pill>
                             : a.lockedUntil ? <Pill tone="danger">锁定至 {a.lockedUntil.slice(11, 16)}</Pill>
                             : <Pill tone="success">正常</Pill>}
                         </TableCell>
-                        <TableCell data-label="最近登录" className="hidden font-mono text-xs text-muted-foreground md:table-cell">
+                        <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
                           {a.lastLoginAt ? a.lastLoginAt.slice(0, 10) : "从未登录"}
                         </TableCell>
-                        <TableCell data-label="操作" className="text-right">
+                        <TableCell className="text-right">
                           <div className="flex flex-wrap items-center justify-end gap-1">
                             <Button size="sm" variant="ghost" aria-label="重置密码" disabled={busy}
                               onClick={() => setResetFor(a)}><KeyRound className="size-4" /></Button>
@@ -330,6 +423,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                   </TableBody>
                 </Table>
               </div>
+              </>
             )}
           </>
         )}

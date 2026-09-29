@@ -169,7 +169,7 @@ export default function App() {
       </aside>
 
       <div className="flex min-h-dvh flex-col md:pl-60">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur md:px-6">
+        <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b px-4 md:px-6">
           <GraduationCap className="size-5 text-primary md:hidden" />
           <span className="brand-band hidden size-2 shrink-0 rounded-full md:block" aria-hidden="true" />
           <span className="text-sm font-semibold md:text-base">{current?.label}</span>
@@ -204,7 +204,7 @@ export default function App() {
         </main>
 
         <nav
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+          className="glass-chrome fixed inset-x-0 bottom-0 z-40 flex border-t pb-[var(--safe-bottom)] md:hidden"
           aria-label="主导航"
         >
           {nav.map(({ key, short, icon: Icon }) => {
@@ -214,11 +214,16 @@ export default function App() {
                 key={key}
                 onClick={() => setTab(key)}
                 aria-current={active ? "page" : undefined}
-                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] transition-colors ${
+                className={`relative flex min-h-13 flex-1 flex-col items-center justify-center gap-1 text-[11px] transition-all active:scale-95 ${
                   active ? "text-primary" : "text-muted-foreground"
                 }`}
               >
-                <Icon className={`size-5 ${active ? "stroke-[2.4]" : ""}`} />
+                {/* 当前项：玻璃胶囊托住图标，比一条色带更像系统底部栏 */}
+                <span className={`grid size-8 place-items-center rounded-full transition-all ${
+                  active ? "bg-primary/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]" : ""
+                }`}>
+                  <Icon className={`size-5 ${active ? "stroke-[2.4]" : ""}`} />
+                </span>
                 {short}
               </button>
             );

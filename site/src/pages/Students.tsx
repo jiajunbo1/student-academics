@@ -15,7 +15,7 @@ import {
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  ClassDot, ClassMark, ConfirmDialog, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  CardList, ClassDot, ClassMark, ConfirmDialog, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
   useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
@@ -152,7 +152,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const colorOf = useMarkColors(classes.map((c) => c.name));
 
   return (
-    <div>
+    <div className="page-in">
       <PageHeader
         title="学生档案"
         eyebrow={classId ? (className.get(classId) ?? "班级") : "全部班级"}
@@ -175,12 +175,12 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       <Toolbar>
         <div className="relative min-w-0 flex-1 sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="姓名或学号" value={kw} onChange={(e) => setKw(e.target.value)} className="w-full pl-8 sm:w-52" />
+          <Input placeholder="姓名或学号" value={kw} onChange={(e) => setKw(e.target.value)} className="h-10 w-full pl-8 sm:h-9 sm:w-52" />
         </div>
-        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
-        <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="全部状态" ariaLabel="按状态筛选" />
+        <FilterSelect blockOnMobile value={classId} onChange={setClassId} options={classOptions} allLabel="全部班级" ariaLabel="按班级筛选" />
+        <FilterSelect blockOnMobile value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="全部状态" ariaLabel="按状态筛选" />
         {(kw || classId || status) && (
-          <Button variant="ghost" size="sm" onClick={() => { setKw(""); setClassId(""); setStatus(""); }}>清除筛选</Button>
+          <Button variant="ghost" size="sm" className="max-md:h-10 max-md:w-full" onClick={() => { setKw(""); setClassId(""); setStatus(""); }}>清除筛选</Button>
         )}
       </Toolbar>
 
@@ -199,54 +199,92 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
             ) : undefined}
           />
         ) : (
-          <div className="overflow-x-auto">
-            <Table className="responsive-table data-table">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead className="hidden md:table-cell">性别</TableHead>
-                  <TableHead>班级</TableHead>
-                  <TableHead>家长 / 联系电话</TableHead>
-                  <TableHead>状态</TableHead><TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => {
-                  const markName = className.get(r.class_id) ?? "";
-                  return (
-                  <TableRow key={r.id} className="cursor-pointer" onClick={() => void openDetail(r)}>
-                    <TableCell data-label="学号" className="font-mono text-xs">{r.student_no}</TableCell>
-                    <TableCell data-label="姓名" className="font-medium">
-                      <span className="flex items-center gap-2">
-                        <ClassMark name={r.name} color={colorOf(markName)} />
-                        {r.name}
-                      </span>
-                    </TableCell>
-                    <TableCell data-label="性别" className="hidden md:table-cell text-muted-foreground">{r.gender}</TableCell>
-                    <TableCell data-label="班级">
-                      <span className="flex items-center gap-1.5">
-                        <ClassDot color={colorOf(markName)} />
-                        {className.get(r.class_id) ?? ""}
-                      </span>
-                    </TableCell>
-                    <TableCell data-label="家长" className="text-muted-foreground">
-                      {r.guardian_name ?? "—"}{r.guardian_phone ? ` (${r.guardian_phone})` : ""}
-                    </TableCell>
-                    <TableCell data-label="状态"><Pill tone={STUDENT_STATUS_TONE[r.status] ?? "info"}>{r.status}</Pill></TableCell>
-                    <TableCell data-label="操作" className="text-right whitespace-nowrap">
-                      {isAdmin && (
-                        <>
-                          <Button size="icon-xs" className="size-7" variant="ghost" aria-label="编辑" onClick={(e) => { e.stopPropagation(); openEdit(r); }}><Pencil className="size-4" /></Button>
-                          <Button size="icon-xs" className="size-7 text-destructive" variant="ghost" aria-label="删除"
-                            onClick={(e) => { e.stopPropagation(); setPendingDelete(r); }}><Trash2 className="size-4" /></Button>
-                        </>
-                      )}
-                    </TableCell>
+          <>
+            <CardList className="md:hidden">
+              {rows.map((r) => {
+                const markName = className.get(r.class_id) ?? "";
+                return (
+                  <RowCard
+                    key={r.id}
+                    onClick={() => void openDetail(r)}
+                    leading={<ClassMark name={r.name} color={colorOf(markName)} large />}
+                    title={r.name}
+                    subtitle={`${r.student_no} · ${r.gender}`}
+                    right={<Pill tone={STUDENT_STATUS_TONE[r.status] ?? "info"}>{r.status}</Pill>}
+                    meta={
+                      <>
+                        <span className="flex items-center gap-1.5"><ClassDot color={colorOf(markName)} />{markName || "未分班"}</span>
+                        <span>{r.guardian_name ?? "家长未登记"}</span>
+                        {r.guardian_phone ? <span className="tabular-nums">{r.guardian_phone}</span> : null}
+                      </>
+                    }
+                    actions={isAdmin ? (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
+                          <Pencil className="size-4" /> 编辑
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-destructive"
+                          onClick={(e) => { e.stopPropagation(); setPendingDelete(r); }}>
+                          <Trash2 className="size-4" /> 删除
+                        </Button>
+                        <Button size="sm" variant="outline" className="ml-auto" onClick={(e) => { e.stopPropagation(); void openDetail(r); }}>
+                          看档案
+                        </Button>
+                      </>
+                    ) : undefined}
+                  />
+                );
+              })}
+            </CardList>
+            <div className="hidden overflow-x-auto md:block">
+              <Table className="data-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead>性别</TableHead>
+                    <TableHead>班级</TableHead>
+                    <TableHead>家长 / 联系电话</TableHead>
+                    <TableHead>状态</TableHead><TableHead className="text-right">操作</TableHead>
                   </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r) => {
+                    const markName = className.get(r.class_id) ?? "";
+                    return (
+                    <TableRow key={r.id} className="cursor-pointer" onClick={() => void openDetail(r)}>
+                      <TableCell className="font-mono text-xs">{r.student_no}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="flex items-center gap-2">
+                          <ClassMark name={r.name} color={colorOf(markName)} />
+                          {r.name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{r.gender}</TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-1.5">
+                          <ClassDot color={colorOf(markName)} />
+                          {markName}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {r.guardian_name ?? "—"}{r.guardian_phone ? ` (${r.guardian_phone})` : ""}
+                      </TableCell>
+                      <TableCell><Pill tone={STUDENT_STATUS_TONE[r.status] ?? "info"}>{r.status}</Pill></TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {isAdmin && (
+                          <>
+                            <Button size="icon-xs" className="size-7" variant="ghost" aria-label="编辑" onClick={(e) => { e.stopPropagation(); openEdit(r); }}><Pencil className="size-4" /></Button>
+                            <Button size="icon-xs" className="size-7 text-destructive" variant="ghost" aria-label="删除"
+                              onClick={(e) => { e.stopPropagation(); setPendingDelete(r); }}><Trash2 className="size-4" /></Button>
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </Panel>
 
@@ -285,7 +323,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       </Dialog>
 
       <Sheet open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>
-        <SheetContent side="right" className="w-[94vw] overflow-y-auto p-0 sm:max-w-xl">
+        <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-xl">
           {detail && (
             <>
               <SheetHeader className="border-b">

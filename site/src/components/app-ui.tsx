@@ -25,6 +25,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -43,7 +44,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { useTheme, type ThemeMode } from "../theme";
+import { useTheme, type GlassMode, type ThemeMode } from "../theme";
 
 export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "light", label: "浅色" },
@@ -51,8 +52,14 @@ export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "跟随系统" },
 ];
 
+/** 手机端底部栏 / 抽屉 / 页头的玻璃质感，两种都能随时切，不留死 */
+export const GLASS_OPTIONS: { value: GlassMode; label: string; hint: string }[] = [
+  { value: "frosted", label: "磨砂玻璃", hint: "均匀虚化" },
+  { value: "liquid", label: "液态玻璃", hint: "边缘折射" },
+];
+
 export function ThemeToggle({ className }: { className?: string }) {
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, glass, setGlass } = useTheme();
   const Icon = mode === "system" ? MonitorSmartphone : mode === "dark" ? Moon : Sun;
   return (
     <DropdownMenu>
@@ -67,6 +74,16 @@ export function ThemeToggle({ className }: { className?: string }) {
           {THEME_OPTIONS.map((option) => (
             <DropdownMenuRadioItem key={option.value} value={option.value}>
               {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>玻璃质感</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={glass} onValueChange={(v) => setGlass(v as GlassMode)}>
+          {GLASS_OPTIONS.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              <span className="flex-1">{option.label}</span>
+              <span className="text-xs text-muted-foreground">{option.hint}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -167,6 +184,28 @@ export function useThemeColors(names: string[]): Record<string, string> {
   return colors;
 }
 
+/**
+ * 趋势图纵轴兜底：只有一次考试（或分数几乎相同）时，recharts 的 auto 会把刻度
+ * 挤成 516/519/522 这种没有信息量的窄带，这里至少撑开 ±5 并取整到 5 或 10。
+ */
+export function trendDomain(values: (number | null | undefined)[], ceil?: number): [number, number] {
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (!xs.length) return [0, ceil ?? 100];
+  const lo = Math.min(...xs);
+  const hi = Math.max(...xs);
+  const pad = Math.max((hi - lo) * 0.2, 5);
+  const step = pad >= 10 ? 10 : 5;
+  let min = Math.max(0, Math.floor((lo - pad) / step) * step);
+  let max = Math.ceil((hi + pad) / step) * step;
+  if (ceil != null && max > ceil) max = ceil;
+  // 轴高至少两个刻度；被满分截断时改为向下补足，不越过 ceil
+  if (max - min < step * 2) {
+    max = Math.min(ceil ?? Infinity, Math.max(max, min + step * 2));
+    min = Math.max(0, max - step * 2);
+  }
+  return [min, max];
+}
+
 export function Panel({
   title,
   description,
@@ -185,7 +224,7 @@ export function Panel({
   return (
     <Card className={cn("gap-0 border shadow-soft", className)}>
       {title ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5 max-md:px-4 max-md:py-3">
           <div className="min-w-0">
             <CardTitle className="text-base font-semibold">{title}</CardTitle>
             {description ? (
@@ -200,12 +239,74 @@ export function Panel({
   );
 }
 
+/**
+ * 窄屏语义卡片：替代表格的 data-label 机械折叠，主标题 / 副信息 / 状态 / 操作各有其位。
+ * 宽屏仍用表格，两者由页面按断点二选一渲染。
+ */
+export function RowCard({
+  leading,
+  title,
+  subtitle,
+  right,
+  meta,
+  children,
+  actions,
+  className,
+  onClick,
+}: {
+  leading?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  right?: ReactNode;
+  meta?: ReactNode;
+  children?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      data-slot="row-card"
+      onClick={onClick}
+      className={cn(
+        "card-lift rounded-xl border bg-card p-3.5 shadow-soft",
+        onClick && "cursor-pointer select-none",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        {leading}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium leading-snug">{title}</p>
+          {subtitle ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p> : null}
+        </div>
+        {right ? <div className="shrink-0 pl-1 text-right">{right}</div> : null}
+      </div>
+      {meta ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">{meta}</div>
+      ) : null}
+      {children ? <div className="mt-2.5">{children}</div> : null}
+      {actions ? (
+        <div className="mt-3 flex items-center justify-end gap-1 border-t pt-2.5 [&>button]:min-h-11 [&>button]:min-w-11">
+          {actions}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 窄屏卡片列表容器：与表格同一份数据，另一种排布 */
+export function CardList({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("space-y-2.5", className)}>{children}</div>;
+}
+
 const TONES = {
   primary: "bg-primary/10 text-primary",
   success: "bg-success/12 text-success",
   warning: "bg-warning/14 text-warning",
   info: "bg-info/12 text-info",
   danger: "bg-destructive/10 text-destructive",
+  neutral: "bg-muted text-muted-foreground",
 } as const;
 
 export const TONE_CLASS = TONES;
@@ -218,6 +319,7 @@ export const TONE_VAR: Record<Tone, string> = {
   warning: "--warning",
   info: "--info",
   danger: "--destructive",
+  neutral: "--muted-foreground",
 };
 
 export function StatCard({
@@ -227,6 +329,7 @@ export function StatCard({
   hint,
   tone = "primary",
   onClick,
+  className,
 }: {
   icon: typeof Sun;
   label: string;
@@ -234,6 +337,7 @@ export function StatCard({
   hint?: ReactNode;
   tone?: Tone;
   onClick?: () => void;
+  className?: string;
 }) {
   const Wrapper = onClick ? "button" : "div";
   return (
@@ -242,7 +346,8 @@ export function StatCard({
       onClick={onClick}
       className={cn(
         "w-full rounded-xl text-left transition",
-        onClick && "hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        onClick && "card-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
       )}
     >
       <Card className="h-full border shadow-soft transition-colors hover:border-brand/45">
@@ -277,6 +382,7 @@ const HEAT_CLASS: Record<Tone, string> = {
   warning: "bg-warning/14",
   primary: "bg-primary/12",
   danger: "bg-destructive/14",
+  neutral: "bg-muted",
 };
 
 export function ScoreText({
@@ -330,6 +436,24 @@ export const STUDENT_STATUS_TONE: Record<string, Tone> = {
   毕业: "primary",
 };
 
+/**
+ * 日常登记（背诵 / 作业）状态的统一语义色：清单、总览、学生端都读这一份。
+ * 口径：完成=绿、要跟进=黄、没做=红、不参与统计=灰。
+ */
+export const DAILY_STATUS_TONE: Record<string, Tone> = {
+  过关: "success",
+  已交: "success",
+  优秀: "success",
+  待重背: "warning",
+  补交: "warning",
+  需订正: "warning",
+  未交: "danger",
+  延背: "neutral",
+  免背: "neutral",
+};
+
+export const dailyStatusTone = (status: string): Tone => DAILY_STATUS_TONE[status] ?? "info";
+
 export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (
     <div className="space-y-2.5 p-1" aria-busy="true" aria-label="加载中">
@@ -372,7 +496,21 @@ export function EmptyState({
 
 export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("mb-4 flex flex-wrap items-center gap-2", className)}>{children}</div>
+    <div data-slot="page-toolbar" className={cn("mb-3 flex flex-wrap items-center gap-2 md:mb-4", className)}>{children}</div>
+  );
+}
+
+/** 统计胶囊行：窄屏横向滑动并贴边出血，PC 端仍按宽度自动换行 */
+export function StatPills({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "scroll-x -mx-3 flex gap-2 px-3 pb-1 [&>*]:shrink-0 md:mx-0 md:flex-wrap md:overflow-x-visible md:px-0 md:pb-0",
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -390,6 +528,7 @@ export function FilterSelect({
   className,
   disabled,
   size = "default",
+  blockOnMobile,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -399,6 +538,8 @@ export function FilterSelect({
   className?: string;
   disabled?: boolean;
   size?: "sm" | "default";
+  /** 窄屏占满一行，手指好点；PC 端仍按内容宽度 */
+  blockOnMobile?: boolean;
 }) {
   const items = allLabel ? [{ value: ALL_SENTINEL, label: allLabel }, ...options] : options;
   return (
@@ -407,7 +548,11 @@ export function FilterSelect({
       onValueChange={(v) => onChange(v === ALL_SENTINEL ? "" : v)}
       disabled={disabled}
     >
-      <SelectTrigger size={size} aria-label={ariaLabel} className={cn("w-auto min-w-32", className)}>
+      <SelectTrigger
+        size={size}
+        aria-label={ariaLabel}
+        className={cn("w-auto min-w-32", blockOnMobile && "max-md:h-11 max-md:w-full max-md:min-w-0", className)}
+      >
         <SelectValue placeholder={allLabel ?? "请选择"} />
       </SelectTrigger>
       <SelectContent position="popper" align="start">
@@ -476,6 +621,7 @@ export function DateField({
   placeholder = "选择日期",
   className,
   disabled,
+  blockOnMobile,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -483,6 +629,7 @@ export function DateField({
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  blockOnMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = parseIso(value);
@@ -491,7 +638,9 @@ export function DateField({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" aria-label={ariaLabel} disabled={disabled}
-          className={cn("w-40 justify-between px-3 font-normal tabular-nums", !value && "text-muted-foreground", className)}>
+          className={cn("w-40 justify-between px-3 font-normal tabular-nums",
+            blockOnMobile && "max-md:h-11 max-md:w-full",
+            !value && "text-muted-foreground", className)}>
           <span className="truncate">{value || placeholder}</span>
           <CalendarIcon className="size-4 shrink-0 opacity-60" />
         </Button>

@@ -8,15 +8,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiGet, errorMessage, fmtScore } from "../api";
 import type { DailyKind, PortalDailyItem, PortalData, PortalRecord } from "../types";
 import {
-  EmptyState, PageHeader, Panel, Pill, ScoreText, StatCard, STUDENT_STATUS_TONE,
-  TableSkeleton, useThemeColors,
+  CardList, EmptyState, PageHeader, Panel, Pill, RowCard, ScoreText, StatCard, STUDENT_STATUS_TONE,
+  TableSkeleton, dailyStatusTone, trendDomain, useThemeColors,
 } from "../components/app-ui";
-import { SETTLED, toneOf } from "./Daily";
+import { SETTLED } from "./Daily";
 
 /** 折线图取色同样从 token 来，保证与看板一致 */
 const CHART_VARS = ["--chart-1", "--warning", "--muted-foreground", "--border"];
 
 const rankLabel = (r: PortalRecord) => (r.rank ? `第 ${r.rank} 名 / ${r.classSize} 人` : "未参加本次考试");
+
+/** 手机端卡片列表没有表头，用科目首字做视觉锚点 */
+const SubjectBadge = ({ name }: { name: string }) => (
+  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-xs font-semibold text-muted-foreground">
+    {name.slice(0, 1)}
+  </span>
+);
 
 export default function Portal() {
   const [data, setData] = useState<PortalData | null>(null);
@@ -61,9 +68,11 @@ export default function Portal() {
     background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 10,
     fontSize: 12, color: "var(--popover-foreground)",
   } as const;
+  const trendRows = records.map((r) => ({ name: r.examName, mine: +(r.total / 10).toFixed(1), avg: r.classAvg }));
+  const trendY = trendDomain(trendRows.flatMap((r) => [r.mine, r.avg]));
 
   return (
-    <div className="space-y-4">
+    <div className="page-in space-y-4">
       <PageHeader
         title="我的学业"
         eyebrow={student.className || "未分班"}
@@ -78,18 +87,18 @@ export default function Portal() {
           hint={latest ? rankLabel(latest) : "等待成绩录入"} />
         <StatCard icon={TrendingUp} label="总分变化" value={delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}
           tone={delta === null ? "info" : delta >= 0 ? "success" : "danger"}
-          hint={delta === null ? "至少两次考试后显示" : `对比 ${first?.examName ?? ""}`} />
+          hint={delta === null ? "至少两次考试后显示" : `对比 ${first?.examName ?? ""}`} className="max-md:col-span-2" />
       </div>
 
       <Panel title="成绩趋势" description={latest ? `最近一次：${latest.examName} · ${latest.examDate}` : undefined}
         contentClassName="h-72">
         {records.length ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={records.map((r) => ({ name: r.examName, mine: +(r.total / 10).toFixed(1), avg: r.classAvg }))}
+            <LineChart data={trendRows}
               margin={{ top: 6, right: 10, left: -12, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={palette.grid} />
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+              <YAxis tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} domain={trendY} />
               <Tooltip contentStyle={tooltipStyle} formatter={(v, key) => [`${v} 分`, key === "mine" ? "我的总分" : "班级平均"]} />
               <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => (v === "mine" ? "我的总分" : "班级平均")} />
               <Line type="monotone" dataKey="mine" stroke={palette.mine} strokeWidth={2.4} dot={{ r: 3 }} />
@@ -101,42 +110,69 @@ export default function Portal() {
 
       {latest ? (
         <Panel title="最近一次各科成绩" description={`${latest.examName} · ${latest.examDate}`} contentClassName="p-3 md:p-0">
-          <Table className="responsive-table data-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>科目</TableHead>
-                <TableHead className="text-right">分数</TableHead>
-                <TableHead className="text-right">与及格线（90）差距</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.subjects.filter((s) => latest.cells[s.id] !== undefined && latest.cells[s.id] !== null).map((s) => {
-                const mine = latest.cells[s.id] as number;
-                const gap = +(mine / 10 - 90).toFixed(1);
-                return (
-                  <TableRow key={s.id}>
-                    <TableCell data-label="科目">{s.name}</TableCell>
-                    <TableCell data-label="分数" className="text-right"><ScoreText tenths={mine} heat /></TableCell>
-                    <TableCell data-label="与及格线差距" className="text-right">
+          <CardList className="md:hidden">
+            {data.subjects.filter((s) => latest.cells[s.id] !== undefined && latest.cells[s.id] !== null).map((s) => {
+              const mine = latest.cells[s.id] as number;
+              const gap = +(mine / 10 - 90).toFixed(1);
+              return (
+                <RowCard
+                  key={s.id}
+                  leading={<SubjectBadge name={s.name} />}
+                  title={s.name}
+                  right={
+                    <div className="flex flex-col items-end gap-1">
+                      <ScoreText tenths={mine} heat className="text-base" />
                       <Pill tone={gap >= 0 ? "success" : "danger"}>{gap >= 0 ? `+${gap}` : gap}</Pill>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              <TableRow>
-                <TableCell data-label="科目"><span className="font-medium">合计 / 平均</span></TableCell>
-                <TableCell data-label="分数" className="text-right">
-                  <span className="font-medium">{fmtScore(latest.total)}</span>
-                  <span className="ml-1 text-xs text-muted-foreground">（{latest.count} 科）</span>
-                </TableCell>
-                <TableCell data-label="与及格线差距" className="text-right">
-                  <Pill tone={latest.total / 10 >= latest.classAvg ? "success" : "warning"}>
-                    总分 {fmtScore(latest.total)} · 班级 {latest.classAvg}
-                  </Pill>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+                    </div>
+                  }
+                />
+              );
+            })}
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed bg-muted/30 p-3">
+              <span className="text-sm font-medium">合计 / 平均</span>
+              <span className="text-sm">
+                {fmtScore(latest.total)}
+                <span className="ml-1 text-xs text-muted-foreground">（{latest.count} 科）</span>
+              </span>
+              <Pill tone={latest.total / 10 >= latest.classAvg ? "success" : "warning"}>班级 {latest.classAvg}</Pill>
+            </div>
+          </CardList>
+          <div className="hidden md:block">
+            <Table className="data-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>科目</TableHead>
+                  <TableHead className="text-right">分数</TableHead>
+                  <TableHead className="text-right">与及格线（90）差距</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.subjects.filter((s) => latest.cells[s.id] !== undefined && latest.cells[s.id] !== null).map((s) => {
+                  const mine = latest.cells[s.id] as number;
+                  const gap = +(mine / 10 - 90).toFixed(1);
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell>{s.name}</TableCell>
+                      <TableCell className="text-right"><ScoreText tenths={mine} heat /></TableCell>
+                      <TableCell className="text-right"><Pill tone={gap >= 0 ? "success" : "danger"}>{gap >= 0 ? `+${gap}` : gap}</Pill></TableCell>
+                    </TableRow>
+                  );
+                })}
+                <TableRow>
+                  <TableCell><span className="font-medium">合计 / 平均</span></TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-medium">{fmtScore(latest.total)}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">（{latest.count} 科）</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Pill tone={latest.total / 10 >= latest.classAvg ? "success" : "warning"}>
+                      总分 {fmtScore(latest.total)} · 班级 {latest.classAvg}
+                    </Pill>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
         </Panel>
       ) : null}
 
@@ -177,37 +213,56 @@ function DailyPanel({ kind, icon: Icon, title, description, items, emptyText }: 
       {!items.length ? (
         <EmptyState icon={Icon} title={`暂无${title}记录`} description={emptyText} />
       ) : (
-        <div className="max-h-80 overflow-y-auto">
-          <Table className="responsive-table data-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>内容</TableHead>
-                <TableHead className="w-24">状态</TableHead>
-                <TableHead className="w-24 text-right">日期</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((i) => (
-                <TableRow key={`${i.title}-${i.assignDate}-${i.checkDate}`}>
-                  <TableCell data-label="内容">
-                    <span className="block font-medium">{i.title}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {[i.subjectName, i.part, i.note].filter(Boolean).join(" · ")}
-                    </span>
-                  </TableCell>
-                  <TableCell data-label="状态">
-                    <Pill tone={toneOf(i.status)}>{i.status}</Pill>
-                    {i.attempt > 1 ? <span className="ml-1 text-[11px] text-muted-foreground">第 {i.attempt} 次</span> : null}
-                  </TableCell>
-                  <TableCell data-label="日期" className="text-right text-xs tabular-nums text-muted-foreground">
-                    {i.checkDate || i.assignDate}
-                    {i.planDate ? <span className="block text-warning">约 {i.planDate}</span> : null}
-                  </TableCell>
+        <>
+          <CardList className="md:hidden">
+            {items.map((i) => (
+              <RowCard
+                key={`${i.title}-${i.assignDate}-${i.checkDate}`}
+                title={i.title}
+                subtitle={[i.subjectName, i.part, i.note].filter(Boolean).join(" · ")}
+                right={<Pill tone={dailyStatusTone(i.status)}>{i.status}</Pill>}
+                meta={
+                  <>
+                    <span className="tabular-nums">{i.checkDate || i.assignDate}</span>
+                    {i.planDate ? <span className="text-warning">约 {i.planDate}</span> : null}
+                    {i.attempt > 1 ? <span>第 {i.attempt} 次</span> : null}
+                  </>
+                }
+              />
+            ))}
+          </CardList>
+          <div className="hidden max-h-80 overflow-y-auto md:block">
+            <Table className="data-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>内容</TableHead>
+                  <TableHead className="w-24">状态</TableHead>
+                  <TableHead className="w-24 text-right">日期</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {items.map((i) => (
+                  <TableRow key={`${i.title}-${i.assignDate}-${i.checkDate}`}>
+                    <TableCell>
+                      <span className="block font-medium">{i.title}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[i.subjectName, i.part, i.note].filter(Boolean).join(" · ")}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Pill tone={dailyStatusTone(i.status)}>{i.status}</Pill>
+                      {i.attempt > 1 ? <span className="ml-1 text-[11px] text-muted-foreground">第 {i.attempt} 次</span> : null}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                      {i.checkDate || i.assignDate}
+                      {i.planDate ? <span className="block text-warning">约 {i.planDate}</span> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </Panel>
   );

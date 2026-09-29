@@ -13,8 +13,8 @@ import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
-  TableSkeleton, Toolbar, useMarkColors, type SelectOption, type Tone,
+  CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
+  RowCard, StatPills, TableSkeleton, Toolbar, dailyStatusTone, useMarkColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, Subject } from "../types";
 
@@ -37,12 +37,6 @@ const META: Record<DailyKind, {
   },
 };
 
-const STATUS_TONE: Record<string, Tone> = {
-  过关: "success", 已交: "success", 优秀: "primary",
-  待重背: "warning", 补交: "warning", 延背: "info", 免背: "info",
-  未交: "danger", 需订正: "danger",
-};
-export const toneOf = (status: string): Tone => STATUS_TONE[status] ?? "info";
 /** 视为「已结清」的状态：进度条、待完成人数与总览里的「待补」都按这个口径 */
 export const SETTLED: Record<DailyKind, string[]> = {
   recitation: ["过关", "免背"],
@@ -150,14 +144,16 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
   };
 
   return (
-    <div className="space-y-4">
+    <div className="page-in space-y-4">
       <Toolbar>
-        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部任教班级" ariaLabel="按班级筛选" />
+        <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部任教班级" ariaLabel="按班级筛选" blockOnMobile />
+        <Button className="ml-auto w-full sm:w-auto" onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>
+      </Toolbar>
+      <StatPills className="mb-4">
         <Pill tone="info">进行中 {stat.open} 份</Pill>
         <Pill tone={stat.pending ? "warning" : "success"}>待完成 {stat.pending} 人次</Pill>
         <Pill tone="success">{meta.doneLabel} {stat.done} 人次</Pill>
-        <Button className="ml-auto w-full sm:w-auto" onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>
-      </Toolbar>
+      </StatPills>
 
       <Panel title={meta.listNoun} description="点一行进入名单登记，进度按本班在读人数计" contentClassName="p-3 md:p-0">
         {!lists ? (
@@ -166,63 +162,72 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
           <EmptyState icon={ListChecks} title={meta.emptyTitle} description={meta.emptyHint}
             action={<Button onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>} />
         ) : (
-          <div className="overflow-x-auto">
-            <Table className="responsive-table data-table">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{meta.titleField}</TableHead>
-                  <TableHead>班级</TableHead>
-                  <TableHead>科目</TableHead>
-                  <TableHead>布置 / 截止</TableHead>
-                  <TableHead className="w-44">登记进度</TableHead>
-                  <TableHead className="sticky right-0 z-10 bg-card w-28 text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lists.map((l) => (
-                  <TableRow key={l.id} className="cursor-pointer" onClick={() => setSheetId(l.id)}>
-                    <TableCell data-label={meta.titleField}>
-                      <span className="flex items-center gap-2">
-                        <ClassMark name={l.title} color={colorOf(l.className)} />
-                        <span className="min-w-0">
-                          <span className="block font-medium">{l.title}</span>
-                          {l.part ? <span className="block truncate text-xs text-muted-foreground">{l.part}</span> : null}
-                          {l.note ? <span className="block truncate text-[11px] text-muted-foreground">{l.note}</span> : null}
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell data-label="班级">
-                      <span className="flex items-center gap-1.5"><ClassDot color={colorOf(l.className)} />{l.className}</span>
-                    </TableCell>
-                    <TableCell data-label="科目" className="text-muted-foreground">{l.subjectName}</TableCell>
-                    <TableCell data-label="布置 / 截止" className="text-xs tabular-nums text-muted-foreground">
-                      <span className="block">{l.assignDate}</span>
-                      {l.dueDate ? <span className="block text-warning">截止 {l.dueDate}</span> : null}
-                    </TableCell>
-                    <TableCell data-label="登记进度">
-                      <ProgressBar done={settledOf(l)} total={l.total} />
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {Object.entries(l.counts).map(([status, n]) => (
-                          <Pill key={status} tone={toneOf(status)}>{status} {n}</Pill>
-                        ))}
-                        {!Object.keys(l.counts).length ? <span className="text-xs text-muted-foreground">尚未登记</span> : null}
-                      </div>
-                    </TableCell>
-                    <TableCell data-label="操作" className="sticky right-0 z-10 bg-card text-right whitespace-nowrap">
-                      <Button size="xs" variant="ghost" title="进入名单登记" aria-label={`${l.title}：进入名单登记`}
-                        onClick={(e) => { e.stopPropagation(); setSheetId(l.id); }}>
-                        <CheckCheck />
-                      </Button>
-                      <Button size="xs" variant="ghost" className="text-muted-foreground" disabled={!l.canDelete} aria-label="修改清单"
-                        onClick={(e) => { e.stopPropagation(); setEditing(l); }}><Pencil /></Button>
-                      <Button size="xs" variant="ghost" className="text-destructive" disabled={!l.canDelete} aria-label="删除清单"
-                        onClick={(e) => { e.stopPropagation(); setDeleting(l); }}><Trash2 /></Button>
-                    </TableCell>
+          <>
+            {/* 窄屏：一份清单一张卡，进度和状态摊开，不用左右滑 */}
+            <CardList className="md:hidden">
+              {lists.map((l) => (
+                <ListCard key={l.id} l={l} colorOf={colorOf} settled={settledOf(l)}
+                  onOpen={() => setSheetId(l.id)} onEdit={() => setEditing(l)} onDelete={() => setDeleting(l)} />
+              ))}
+            </CardList>
+            <div className="hidden overflow-x-auto md:block">
+              <Table className="data-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{meta.titleField}</TableHead>
+                    <TableHead>班级</TableHead>
+                    <TableHead>科目</TableHead>
+                    <TableHead>布置 / 截止</TableHead>
+                    <TableHead className="w-44">登记进度</TableHead>
+                    <TableHead className="sticky right-0 z-10 bg-card w-28 text-right">操作</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {lists.map((l) => (
+                    <TableRow key={l.id} className="cursor-pointer" onClick={() => setSheetId(l.id)}>
+                      <TableCell>
+                        <span className="flex items-center gap-2">
+                          <ClassMark name={l.title} color={colorOf(l.className)} />
+                          <span className="min-w-0">
+                            <span className="block font-medium">{l.title}</span>
+                            {l.part ? <span className="block truncate text-xs text-muted-foreground">{l.part}</span> : null}
+                            {l.note ? <span className="block truncate text-[11px] text-muted-foreground">{l.note}</span> : null}
+                          </span>
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-1.5"><ClassDot color={colorOf(l.className)} />{l.className}</span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{l.subjectName}</TableCell>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        <span className="block">{l.assignDate}</span>
+                        {l.dueDate ? <span className="block text-warning">截止 {l.dueDate}</span> : null}
+                      </TableCell>
+                      <TableCell>
+                        <ProgressBar done={settledOf(l)} total={l.total} />
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {Object.entries(l.counts).map(([status, n]) => (
+                            <Pill key={status} tone={dailyStatusTone(status)}>{status} {n}</Pill>
+                          ))}
+                          {!Object.keys(l.counts).length ? <span className="text-xs text-muted-foreground">尚未登记</span> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-card text-right whitespace-nowrap">
+                        <Button size="xs" variant="ghost" title="进入名单登记" aria-label={`${l.title}：进入名单登记`}
+                          onClick={(e) => { e.stopPropagation(); setSheetId(l.id); }}>
+                          <CheckCheck />
+                        </Button>
+                        <Button size="xs" variant="ghost" className="text-muted-foreground" disabled={!l.canDelete} aria-label="修改清单"
+                          onClick={(e) => { e.stopPropagation(); setEditing(l); }}><Pencil /></Button>
+                        <Button size="xs" variant="ghost" className="text-destructive" disabled={!l.canDelete} aria-label="删除清单"
+                          onClick={(e) => { e.stopPropagation(); setDeleting(l); }}><Trash2 /></Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </Panel>
 
@@ -240,16 +245,59 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
   );
 }
 
-function ProgressBar({ done, total }: { done: number; total: number }) {
+function ProgressBar({ done, total, wide }: { done: number; total: number; wide?: boolean }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex items-center gap-2">
-      <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+      <span className={cn("h-1.5 overflow-hidden rounded-full bg-muted", wide ? "min-w-0 flex-1" : "w-24 shrink-0")}>
         <span className={cn("block h-full rounded-full transition-all", pct >= 100 ? "bg-success" : "brand-band")}
           style={{ width: `${pct}%` }} />
       </span>
       <span className="text-xs tabular-nums text-muted-foreground">{done} / {total}</span>
     </div>
+  );
+}
+
+/** 窄屏清单卡片：主标题=篇目，副信息=班级/科目/日期，进度与状态占满一行 */
+function ListCard({ l, colorOf, settled, onOpen, onEdit, onDelete }: {
+  l: DailyListRow; colorOf: (key: string) => string; settled: number;
+  onOpen: () => void; onEdit: () => void; onDelete: () => void;
+}) {
+  return (
+    <RowCard
+      onClick={onOpen}
+      leading={<ClassMark name={l.title} color={colorOf(l.className)} large />}
+      title={l.title}
+      subtitle={[l.part, l.note].filter(Boolean).join(" · ")}
+      right={<Pill tone={settled >= l.total ? "success" : "info"}>{settled}/{l.total}</Pill>}
+      meta={
+        <>
+          <span className="flex items-center gap-1"><ClassDot color={colorOf(l.className)} />{l.className}</span>
+          <span aria-hidden="true">·</span>
+          <span>{l.subjectName}</span>
+          <span aria-hidden="true">·</span>
+          <span className="tabular-nums">{l.assignDate}</span>
+          {l.dueDate ? <Pill tone="warning">截止 {l.dueDate}</Pill> : null}
+        </>
+      }
+      actions={
+        <>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={!l.canDelete} aria-label="修改清单"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}><Pencil /> 修改</Button>
+          <Button size="sm" variant="ghost" className="text-destructive" disabled={!l.canDelete} aria-label="删除清单"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}><Trash2 /> 删除</Button>
+          <Button size="sm" onClick={(e) => { e.stopPropagation(); onOpen(); }}><CheckCheck /> 去登记</Button>
+        </>
+      }
+    >
+      <ProgressBar done={settled} total={l.total} wide />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {Object.entries(l.counts).map(([status, n]) => (
+          <Pill key={status} tone={dailyStatusTone(status)}>{status} {n}</Pill>
+        ))}
+        {!Object.keys(l.counts).length ? <span className="text-xs text-muted-foreground">尚未登记</span> : null}
+      </div>
+    </RowCard>
   );
 }
 
@@ -298,8 +346,9 @@ function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: 
       ) : !data.lists.length ? (
         <EmptyState icon={Table2} title={`该班级还没有${meta.listNoun}`} description={meta.emptyHint} />
       ) : (
-        <div className="overflow-x-auto">
-          <Table className="data-table">
+        /* 窄屏整表横向滑动，学生列冻结在左侧 */
+        <div className="scroll-x -mx-3 px-3 md:mx-0 md:px-0">
+          <Table className="data-table max-md:min-w-max">
             <TableHeader>
               <TableRow>
                 <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
@@ -327,7 +376,7 @@ function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: 
                       const v = r.cells[l.id];
                       return (
                         <TableCell key={l.id}>
-                          {v ? <Pill tone={toneOf(v)}>{v}</Pill> : <span className="text-muted-foreground">·</span>}
+                          {v ? <Pill tone={dailyStatusTone(v)}>{v}</Pill> : <span className="text-muted-foreground">·</span>}
                         </TableCell>
                       );
                     })}
@@ -566,24 +615,67 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
           <TableSkeleton rows={6} cols={4} />
         ) : (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2.5">
+            {/* 窄屏两列排布（说明在左、控件在右），PC 端仍是一行内联 */}
+            <div className="grid grid-cols-2 items-center gap-2 rounded-xl border bg-muted/30 p-2.5 md:flex md:flex-wrap">
               <span className="text-xs text-muted-foreground">{meta.checkNoun}</span>
-              <DateField value={checkDate} ariaLabel={meta.checkNoun} className="w-36" onChange={setCheckDate} />
+              <DateField value={checkDate} ariaLabel={meta.checkNoun} className="w-full min-w-0 md:w-36" onChange={setCheckDate} />
               {kind === "recitation" ? (
                 <>
                   <span className="text-xs text-muted-foreground">延背应背日</span>
-                  <DateField value={planDate} ariaLabel="延背应背日期" placeholder="不设定" className="w-36" onChange={setPlanDate} />
+                  <DateField value={planDate} ariaLabel="延背应背日期" placeholder="不设定" className="w-full min-w-0 md:w-36" onChange={setPlanDate} />
                 </>
               ) : null}
-              <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+              <span className="mx-1 hidden h-5 w-px bg-border md:block" aria-hidden="true" />
               <FilterSelect size="sm" value={fill} onChange={fillRest} ariaLabel="批量填充未登记" allLabel="批量填充未登记"
+                className="w-full min-w-0 md:w-auto md:min-w-32"
                 options={data.statuses.map((s) => ({ value: s, label: `填为「${s}」` }))} />
-              <Button size="sm" variant="outline" className="ml-auto" onClick={() => setImporting(true)}>
+              <Button size="sm" variant="outline" className="w-full md:ml-auto md:w-auto" onClick={() => setImporting(true)}>
                 <FileUp /> 批量导入
               </Button>
             </div>
 
-            <div className="max-h-[52vh] overflow-y-auto rounded-lg border">
+            {/* 窄屏一人一卡：状态按钮加大到好点，备注和登记人一并在卡里 */}
+            <div className="space-y-2.5 md:hidden">
+              {data.rows.map((r) => {
+                const cur = view(r);
+                const changed = dirty.some((d) => d.studentId === r.studentId);
+                const off = r.status !== "在读";
+                return (
+                  <div key={r.studentId}
+                    className={cn("card-lift rounded-xl border p-3",
+                      changed ? "border-primary/50 bg-primary/5" : "border-border bg-card shadow-soft")}>
+                    <div className="flex items-center gap-2.5">
+                      <ClassMark name={r.name} color={colorOf(data.list.className)} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{r.name}</p>
+                        <p className="truncate font-mono text-[11px] text-muted-foreground">
+                          {r.studentNo}{off ? ` · ${r.status}` : ""}
+                        </p>
+                      </div>
+                      {data.hasAttempt && cur.status
+                        ? <Pill tone="neutral">第 {r.record?.attempt ?? 1} 次</Pill>
+                        : null}
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5 [&>button]:min-h-10">
+                      {data.statuses.map((s) => (
+                        <Button key={s} type="button" size="sm" variant={cur.status === s ? "default" : "outline"}
+                          disabled={off} aria-label={`${r.name}：${s}`}
+                          onClick={() => setStatus(r, s)}>{s}</Button>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Input maxLength={200} className="h-10 min-w-0 flex-1" placeholder="备注（可空）" disabled={off}
+                        value={cur.note} onChange={(e) => setNote(r, e.target.value)} />
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {r.record ? `${r.record.recordedByName || "—"} · ${r.record.checkDate}` : "未登记"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-y-auto rounded-lg border md:block md:max-h-[52vh]">
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>

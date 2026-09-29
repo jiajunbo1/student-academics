@@ -77,6 +77,17 @@
 
   /* 密度层：表格行高 */
   --row-h: 2.25rem;
+
+  /* 质感层：卡片抬升、底部抽屉阴影、抽屉圆角与手机安全区 */
+  --shadow-lift: 0 2px 4px rgba(16, 24, 40, 0.06), 0 14px 30px -16px rgba(16, 24, 40, 0.26);
+  --shadow-sheet: 0 -10px 40px -12px rgba(16, 24, 40, 0.28);
+  --radius-sheet: 1.125rem;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sheet-pad-b: calc(1rem + var(--safe-bottom));
+
+  /* 动效层：快出慢收的弹性曲线，接近系统抽屉手感 */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --blur-chrome: saturate(180%) blur(16px);
 }
 
 .dark {
@@ -130,6 +141,9 @@
   --class-3: #a68bff;
   --class-4: #f5c451;
   --class-5: #ff8b96;
+
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.45), 0 16px 34px -16px rgba(0, 0, 0, 0.8);
+  --shadow-sheet: 0 -10px 40px -12px rgba(0, 0, 0, 0.7);
 }
 
 @theme inline {
@@ -180,6 +194,8 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --shadow-soft: var(--shadow-soft);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-sheet: var(--shadow-sheet);
   --font-sans: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei",
     "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -269,56 +285,241 @@ table th {
   font-variant-numeric: tabular-nums;
 }
 
-/* 窄屏：表格按行折叠成卡片，单元格用 data-label 显示字段名 */
-@media (max-width: 767px) {
-  .responsive-table thead {
+/* ── 质感层：可点卡片的抬升反馈（窄屏没有 hover，改用按下缩放） ── */
+.card-lift {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+@media (hover: hover) {
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+@media (hover: none) {
+  .card-lift:active {
+    transform: scale(0.985);
+  }
+}
+
+/* 切页淡入：tab / 路由切换时内容不再硬跳 */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-in {
+  animation: page-in 0.26s ease-out both;
+}
+
+/* 窄屏横向滚动：统计胶囊、总览表格要能滑，但不留可见滚动条 */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── 手机特效层：磨砂玻璃 + 弹性抽屉 + 去掉点击高亮块 ── */
+.glass-chrome {
+  background: color-mix(in oklab, var(--background) 72%, transparent);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
+  /* 玻璃边缘：内侧一道高光，浅色深色各调一档 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.dark .glass-chrome {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-chrome {
+    background: var(--background);
+    box-shadow: none;
+  }
+
+  html[data-glass="liquid"] .glass-chrome::before,
+  html[data-glass="liquid"] .glass-panel::before {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--background);
+    box-shadow: none;
+  }
+
+  html[data-glass="liquid"] .glass-chrome::after,
+  html[data-glass="liquid"] .glass-panel::after {
     display: none;
   }
+}
 
-  .responsive-table,
-  .responsive-table tbody,
-  .responsive-table tr,
-  .responsive-table td {
-    display: block;
-    width: 100%;
+/* ── 液态玻璃（html[data-glass="liquid"]）──
+   Chromium 实测只解析不执行 backdrop-filter: url() 的真折射，所以这里用
+   「整块轻折射 + 边缘重折射环 + 内侧高光」三层近似，Safari / Chrome 表现一致。 */
+/* 宿主自己就是定位元素（fixed / sticky），这里不能再写 position，
+   未分层规则会盖掉 Tailwind 的 fixed 工具类。 */
+html[data-glass="liquid"] .glass-chrome,
+html[data-glass="liquid"] .glass-panel {
+  isolation: isolate;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 抽屉的投影要留在外壳上（内层伪元素会被 overflow-hidden 裁掉） */
+html[data-glass="liquid"] .glass-chrome {
+  box-shadow: none;
+}
+
+html[data-glass="liquid"] .glass-chrome::before,
+html[data-glass="liquid"] .glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--background) 58%, transparent);
+  backdrop-filter: saturate(200%) blur(12px);
+  -webkit-backdrop-filter: saturate(200%) blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 20px -6px rgba(255, 255, 255, 0.3);
+}
+
+/* 边缘透镜：只有外圈 0.625rem 叠一层更重的模糊，看着像玻璃厚度把背景折了进来 */
+html[data-glass="liquid"] .glass-chrome::after,
+html[data-glass="liquid"] .glass-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 0.625rem;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: saturate(230%) brightness(1.06) blur(26px);
+  -webkit-backdrop-filter: saturate(230%) brightness(1.06) blur(26px);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+html.dark[data-glass="liquid"] .glass-chrome::before,
+html.dark[data-glass="liquid"] .glass-panel::before {
+  background: color-mix(in oklab, var(--background) 60%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 20px -6px rgba(255, 255, 255, 0.08);
+}
+
+/* 状态条很薄，折射环收窄、饱和度压低，否则整条会被染成一块色带 */
+html[data-glass="liquid"] .glass-chrome::after {
+  padding: 0.375rem;
+  backdrop-filter: saturate(170%) brightness(1.04) blur(22px);
+  -webkit-backdrop-filter: saturate(170%) brightness(1.04) blur(22px);
+}
+
+/* 抽屉里是表单，底色要比状态条更实，否则后面的卡片会透过字段晃眼 */
+html[data-glass="liquid"] .glass-panel::before {
+  background: color-mix(in oklab, var(--background) 70%, transparent);
+  backdrop-filter: saturate(200%) blur(20px);
+  -webkit-backdrop-filter: saturate(200%) blur(20px);
+}
+
+html.dark[data-glass="liquid"] .glass-panel::before {
+  background: color-mix(in oklab, var(--background) 64%, transparent);
+}
+
+html[data-glass="liquid"] .glass-panel::after {
+  padding: 1.125rem;
+  opacity: 0.75;
+  backdrop-filter: saturate(180%) brightness(1.02) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) brightness(1.02) blur(30px);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  /* 遮罩虚化：抽屉升起时后面的内容糊成一层，层次更像系统弹层 */
+  [data-slot="dialog-overlay"] {
+    background: color-mix(in oklab, var(--foreground) 42%, transparent);
+    backdrop-filter: blur(6px) saturate(120%);
+    -webkit-backdrop-filter: blur(6px) saturate(120%);
   }
 
-  .responsive-table tr {
-    margin-bottom: 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--card);
-    padding: 0.25rem 0.75rem;
+  [data-slot="dialog-content"] {
+    animation-timing-function: var(--ease-spring);
+    box-shadow: var(--shadow-sheet), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
 
-  .responsive-table td {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 0.375rem 0.5rem;
-    border: 0;
-    padding: 0.4rem 0;
-    text-align: right;
+  .dark [data-slot="dialog-content"] {
+    box-shadow: var(--shadow-sheet), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
-  .responsive-table.data-table td {
-    height: auto;
-    font-size: 0.875rem;
+  /* 抽屉里的控件统一放大到手指尺寸（44px） */
+  [data-slot="dialog-content"] button,
+  [data-slot="dialog-content"] input,
+  [data-slot="dialog-content"] textarea,
+  [data-slot="dialog-content"] [data-slot="select-trigger"],
+  [data-slot="alert-dialog-content"] button {
+    min-height: 2.75rem;
   }
 
-  .responsive-table td::before {
-    content: attr(data-label);
-    margin-right: auto;
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-align: left;
+  /* 侧滑详情面板在窄屏是全屏，底部留出系统手势区 */
+  [data-slot="sheet-content"] {
+    padding-bottom: var(--safe-bottom);
   }
 
-  .responsive-table td:empty::before,
-  .responsive-table td[data-label=""]::before {
-    content: "";
+  /* 页头下方的筛选条：手机端与抽屉同档触摸尺寸 */
+  [data-slot="page-toolbar"] button,
+  [data-slot="page-toolbar"] input,
+  [data-slot="page-toolbar"] [data-slot="select-trigger"] {
+    min-height: 2.75rem;
+  }
+
+  /* 卡片里的下拉与输入（如账号角色切换）也是手指点的，同样抬到 44px */
+  [data-slot="row-card"] [data-slot="select-trigger"],
+  [data-slot="row-card"] input {
+    min-height: 2.75rem;
+  }
+
+  /* 窄屏页头收紧，把竖向空间留给内容 */
+  .page-head {
+    padding: 0.75rem 0.9375rem 0.8125rem 1.125rem;
+  }
+
+  /* 手机端一律不画滚动条：内容靠手指滑动，轨道只是噪音（桌面仍保留） */
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-in {
+    animation: none;
+  }
+
+  .card-lift {
+    transition: none;
   }
 }
 
