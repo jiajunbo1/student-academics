@@ -15,7 +15,7 @@ import {
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  ClassDot, ClassMark, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  ClassDot, ClassMark, ConfirmDialog, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
   useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
@@ -78,6 +78,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const [refData, setRefData] = useState<{ subjects: Subject[]; exams: Exam[] }>({ subjects: [], exams: [] });
   const [importing, setImporting] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<StudentRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -128,7 +129,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const remove = async (row: StudentRow) => {
-    if (!confirm(`确定删除学生「${row.name}」及其全部成绩记录？`)) return;
+    setPendingDelete(null);
     try {
       await apiPost("students.delete", { id: row.id });
       toast.success("已删除"); void load();
@@ -235,7 +236,8 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                       {isAdmin && (
                         <>
                           <Button size="icon-xs" className="size-7" variant="ghost" aria-label="编辑" onClick={(e) => { e.stopPropagation(); openEdit(r); }}><Pencil className="size-4" /></Button>
-                          <Button size="icon-xs" variant="ghost" aria-label="删除" className="size-7 text-destructive" onClick={(e) => { e.stopPropagation(); void remove(r); }}><Trash2 className="size-4" /></Button>
+                          <Button size="icon-xs" className="size-7 text-destructive" variant="ghost" aria-label="删除"
+                            onClick={(e) => { e.stopPropagation(); setPendingDelete(r); }}><Trash2 className="size-4" /></Button>
                         </>
                       )}
                     </TableCell>
@@ -339,6 +341,15 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           </div>
         }
         submit={(rows, dryRun) => apiPost<ImportResult>("import.students", { rows, dryRun, updateExisting: overwrite })}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title="删除学生"
+        confirmLabel="确认删除"
+        description={<>确定删除学生「{pendingDelete?.name}」（{pendingDelete?.student_no}）？该学生的全部成绩记录会一并删除，此操作不可撤销。</>}
+        onConfirm={() => { if (pendingDelete) void remove(pendingDelete); }}
       />
     </div>
   );

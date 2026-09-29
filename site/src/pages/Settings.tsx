@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { cn } from "@/lib/utils";
-import { ClassDot, EmptyState, FilterSelect, PageHeader, Panel, Pill, useMarkColors, type SelectOption } from "../components/app-ui";
+import { ClassDot, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, useMarkColors, type SelectOption } from "../components/app-ui";
 import { ChangePasswordForm } from "../components/auth-screens";
 import type { AccountRow, ClassRow, Me, Subject } from "../types";
 
@@ -78,13 +78,11 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
   };
 
   const seed = async () => {
-    if (!confirm("将导入一套完整的演示数据（3 个班级、15 名学生及 3 场考试的成绩）。仅在系统为空时可用。继续？")) return;
     await run("demo.seed", {}, "演示数据导入完成");
   };
 
   const seedStudents = async () => {
     if (!seedForm.initialPassword) { toast.error("请先填写学生账号的初始密码"); return; }
-    if (!confirm(`将为在读且尚未开通账号的学生批量创建账号（用户名为学号，初始密码统一，首次登录需修改）。继续？`)) return;
     const r = await apiPost<{ created: string[]; skipped: string[]; invalid: string[]; truncated: boolean }>(
       "accounts.seed-students", { classId: seedForm.classId || undefined, initialPassword: seedForm.initialPassword });
     toast.success(`已开通 ${r.created.length} 个学生账号`, {
@@ -229,9 +227,12 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                 <Input id="seed-pw" type="text" placeholder="如 Sx20260000" value={seedForm.initialPassword} className="h-9 w-44"
                   onChange={(e) => setSeedForm({ ...seedForm, initialPassword: e.target.value })} />
               </div>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void seedStudents()}>
+              <ConfirmButton variant="outline" confirmLabel="开始开通" tone="default" busy={busy}
+                title="批量开通学生账号"
+                description={`将为${seedForm.classId ? classes.find((c) => c.id === seedForm.classId)?.name ?? "所选班级" : "全部班级"}在读且尚未开通账号的学生创建账号：用户名为学号，初始密码统一，首次登录需修改。`}
+                onConfirm={() => void seedStudents()}>
                 <UserRound /> 批量开通学生账号
-              </Button>
+              </ConfirmButton>
               <p className="w-full text-xs text-muted-foreground sm:w-auto sm:flex-1">
                 账号即学号，学生首次登录会被要求改成自己的密码。
               </p>
@@ -316,10 +317,12 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                               onClick={() => void run("accounts.status", { id: a.id, status: a.status === "active" ? "disabled" : "active" }, a.status === "active" ? "账号已停用" : "账号已启用")}>
                               <Power className="size-4" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" aria-label="删除账号" disabled={busy}
-                              onClick={() => { if (confirm(`确定删除账号 ${a.username}？该账号的登录会话会一并失效。`)) void run("accounts.delete", { id: a.id }, "账号已删除"); }}>
+                            <ConfirmButton variant="ghost" size="sm" className="text-destructive" ariaLabel="删除账号" busy={busy}
+                              title="删除账号" confirmLabel="确认删除"
+                              description={<>确定删除账号 {a.username}（{a.displayName}）？该账号的登录会话会一并失效，学生档案与成绩不受影响。</>}
+                              onConfirm={() => void run("accounts.delete", { id: a.id }, "账号已删除")}>
                               <Trash2 className="size-4" />
-                            </Button>
+                            </ConfirmButton>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -360,7 +363,12 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
               <p className="text-sm">3 个班级 · 15 名学生 · 9 门科目 · 3 场考试成绩</p>
               <p className="text-xs text-muted-foreground">仅在系统完全为空时可导入，不会覆盖已有数据。</p>
             </div>
-            <Button variant="outline" disabled={busy} onClick={() => void seed()}>导入演示数据</Button>
+            <ConfirmButton variant="outline" confirmLabel="开始导入" tone="default" busy={busy}
+              title="导入演示数据"
+              description="将导入一套完整的演示数据（3 个班级、15 名学生及 3 场考试的成绩）。仅在系统完全为空时可用，不会覆盖已有数据。"
+              onConfirm={() => void seed()}>
+              导入演示数据
+            </ConfirmButton>
           </div>
         </Panel>
       )}

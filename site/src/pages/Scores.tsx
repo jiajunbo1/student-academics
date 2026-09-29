@@ -3,9 +3,10 @@ import { toast } from "sonner";
 import { ClipboardList, Download, FileUp, LineChart as LineChartIcon, Plus, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { downloadCsv, ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  ClassDot, ClassMark, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText,
+  ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, ScoreText,
   TableSkeleton, Toolbar, useMarkColors, useMarkColorValues, useThemeColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, Exam, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
@@ -38,6 +39,9 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   const [saving, setSaving] = useState(false);
   const [trendFor, setTrendFor] = useState<Subject | null>(null);
   const [importing, setImporting] = useState(false);
+  const [examDialog, setExamDialog] = useState(false);
+  const [examForm, setExamForm] = useState({ name: "", examDate: "", term: "" });
+  const [examSaving, setExamSaving] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -91,15 +95,21 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const addExam = async () => {
-    const name = prompt("考试名称（如：高一上学期第三次月考）"); if (!name) return;
-    const date = prompt("考试日期 YYYY-MM-DD"); if (!date) return;
-    const term = prompt("学期（如：2024-2025学年第二学期）"); if (!term) return;
+    const name = examForm.name.trim();
+    const term = examForm.term.trim();
+    if (!name) { toast.error("请填写考试名称"); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(examForm.examDate)) { toast.error("请选择考试日期"); return; }
+    if (!term) { toast.error("请填写学期"); return; }
+    setExamSaving(true);
     try {
-      await apiPost("exams.save", { name, examDate: date, term });
+      await apiPost("exams.save", { name, examDate: examForm.examDate, term });
       toast.success("考试已创建");
+      setExamDialog(false);
+      setExamForm({ name: "", examDate: "", term: "" });
       const r = await apiGet<{ exams: Exam[] }>("refdata");
       setExams(r.exams);
     } catch (e) { toast.error(errorMessage(e)); }
+    finally { setExamSaving(false); }
   };
 
   const exam = exams.find((e) => e.id === examId);
@@ -136,9 +146,9 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
         eyebrow={classId ? (classOptions.find((c) => c.value === classId)?.label ?? "班级") : isAdmin ? "全校" : "任教范围"}
         description={exam ? `${exam.term} · ${exam.exam_date}${classId ? "" : isAdmin ? " · 全校数据" : " · 仅你任教的科目与班级"}` : "选择考试后查看成绩单或录入分数"}
       >
-        {isAdmin && <Button variant="outline" onClick={() => void addExam()}><Plus /> 新建考试</Button>}
+        {isAdmin && <Button variant="outline" onClick={() => setExamDialog(true)}><Plus /> 新建考试</Button>}
         <Button variant="outline" onClick={exportScoreCsv} disabled={!exam}><Download /> 导出成绩表</Button>
-        <Button variant="outline" onClick={() => setImporting(true)} disabled={!exam} title={exam ? undefined : "先在「系统设置」中新建考试"}><FileUp /> 批量导入</Button>
+        <Button variant="outline" onClick={() => setImporting(true)} disabled={!exam} title={exam ? undefined : "先在页面上方选择考试"}><FileUp /> 批量导入</Button>
       </PageHeader>
 
       <Toolbar>
@@ -296,6 +306,36 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
         }
         submit={(rows, dryRun) => apiPost<ImportResult>("import.scores", { examId, rows, dryRun })}
       />
+
+      <Dialog open={examDialog} onOpenChange={(o) => { setExamDialog(o); if (!o) setExamForm({ name: "", examDate: "", term: "" }); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>新建考试</DialogTitle>
+            <DialogDescription>创建后即可在上方选择这场考试进行录入、导入与导出。</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-3.5" onSubmit={(e) => { e.preventDefault(); void addExam(); }}>
+            <div className="space-y-1.5">
+              <Label htmlFor="exam-name" className="text-xs text-muted-foreground">考试名称</Label>
+              <Input id="exam-name" maxLength={50} placeholder="如 高一上学期第三次月考" value={examForm.name}
+                onChange={(e) => setExamForm({ ...examForm, name: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">考试日期</Label>
+              <DateField value={examForm.examDate} ariaLabel="考试日期" placeholder="选择考试日期"
+                onChange={(v) => setExamForm({ ...examForm, examDate: v })} className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="exam-term" className="text-xs text-muted-foreground">学期</Label>
+              <Input id="exam-term" maxLength={30} placeholder="如 2024-2025学年第二学期" value={examForm.term}
+                onChange={(e) => setExamForm({ ...examForm, term: e.target.value })} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setExamDialog(false)}>取消</Button>
+              <Button type="submit" disabled={examSaving}>创建考试</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

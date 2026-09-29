@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { CalendarIcon, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { zhCN } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -442,5 +456,154 @@ export function EntityPicker({
         </ComboboxList>
       </ComboboxContent>
     </Combobox>
+  );
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const isoOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseIso = (s: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return isoOf(date) === s ? date : undefined;
+};
+
+/** 中文日历弹层选日期，值仍是后端要求的 YYYY-MM-DD 文本 */
+export function DateField({
+  value,
+  onChange,
+  ariaLabel,
+  placeholder = "选择日期",
+  className,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  ariaLabel?: string;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = parseIso(value);
+  const thisYear = new Date().getFullYear();
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" aria-label={ariaLabel} disabled={disabled}
+          className={cn("w-40 justify-between px-3 font-normal tabular-nums", !value && "text-muted-foreground", className)}>
+          <span className="truncate">{value || placeholder}</span>
+          <CalendarIcon className="size-4 shrink-0 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={selected}
+          locale={zhCN}
+          captionLayout="dropdown"
+          startMonth={new Date(thisYear - 6, 0, 1)}
+          endMonth={new Date(thisYear + 3, 11, 31)}
+          weekStartsOn={1}
+          defaultMonth={selected}
+          onSelect={(day) => {
+            if (!day) return;
+            onChange(isoOf(day));
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** 危险/批量操作的应用内确认框，替代 window.confirm */
+export function ConfirmButton({
+  title,
+  description,
+  confirmLabel = "确认",
+  tone = "destructive",
+  onConfirm,
+  busy,
+  disabled,
+  ariaLabel,
+  variant = "outline",
+  size = "sm",
+  className,
+  children,
+}: {
+  title: string;
+  description: ReactNode;
+  confirmLabel?: string;
+  tone?: "destructive" | "default";
+  onConfirm: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+  variant?: ComponentProps<typeof Button>["variant"];
+  size?: ComponentProps<typeof Button>["size"];
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant={variant} size={size} className={className} disabled={disabled || busy} aria-label={ariaLabel}>
+          {children}
+        </Button>
+      </AlertDialogTrigger>
+      <ConfirmDialogBody title={title} description={description} confirmLabel={confirmLabel} tone={tone} busy={busy} onConfirm={onConfirm} />
+    </AlertDialog>
+  );
+}
+
+/** 受控确认框：触发器需要自己处理点击（如行内按钮要阻止冒泡）时用它 */
+export function ConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel = "确认",
+  tone = "destructive",
+  busy,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: ReactNode;
+  confirmLabel?: string;
+  tone?: "destructive" | "default";
+  busy?: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <ConfirmDialogBody title={title} description={description} confirmLabel={confirmLabel} tone={tone} busy={busy} onConfirm={onConfirm} />
+    </AlertDialog>
+  );
+}
+
+function ConfirmDialogBody({ title, description, confirmLabel, tone, busy, onConfirm }: {
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  tone: "destructive" | "default";
+  busy?: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>取消</AlertDialogCancel>
+        <AlertDialogAction variant={tone} disabled={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
   );
 }
