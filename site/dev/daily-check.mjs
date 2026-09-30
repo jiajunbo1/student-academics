@@ -130,6 +130,15 @@ await call('recitation.check', { token: T, body: { listId, entries: [{ studentId
 const r5 = recOf(await call('recitation.sheet', { token: T, qs: `&listId=${listId}` }), first.studentId);
 check('空状态撤销登记', r5 === null, JSON.stringify(r5));
 
+// 5b. 总览打勾：请求只带状态，备注与应背日必须原样保留（否则点一下勾就丢数据）
+await call('recitation.check', { token: T, body: { listId, entries: [{ studentId: first.studentId, status: '延背', note: '口头订正即可', planDate: '2026-10-12' }] } });
+await call('recitation.check', { token: T, body: { listId, entries: [{ studentId: first.studentId, status: '过关' }] } });
+const rTick = recOf(await call('recitation.sheet', { token: T, qs: `&listId=${listId}` }), first.studentId);
+check('打勾改状态不抹备注与应背日', rTick?.status === '过关' && rTick?.note === '口头订正即可' && rTick?.planDate === '2026-10-12'
+  && rTick?.attempt === 2, JSON.stringify(rTick));
+await call('recitation.check', { token: T, body: { listId, entries: [{ studentId: first.studentId, status: '' }] } });
+check('打勾再点一次即撤销', recOf(await call('recitation.sheet', { token: T, qs: `&listId=${listId}` }), first.studentId) === null);
+
 const badStatus = await call('recitation.check', { token: T, body: { listId, entries: [{ studentId: first.studentId, status: '随便' }] } });
 check('非法状态被拒', badStatus.status === 400 && badStatus.json?.error === 'invalid_choice', `${badStatus.status} ${badStatus.json?.error}`);
 const alien = (await call('students.list', { token: admin, qs: `&classId=${C2.id}` })).json.students[0];
@@ -140,6 +149,7 @@ check('跨班学生登记被拒', badClass.status === 403 && badClass.json?.erro
 const grid = await call('recitation.grid', { token: T, qs: `&classId=${C1.id}&days=7` });
 check('总览含本次清单', (grid.json.lists || []).some((x) => x.id === listId), String(grid.json?.error || grid.json?.lists?.length));
 check('总览格子有状态', (grid.json.rows || []).some((r) => r.cells[listId] === '过关'), `${grid.json?.rows?.length} 行`);
+check('总览下发打勾口径', grid.json.pass === '过关' && (grid.json.statuses || []).join(',') === '过关,待重背,延背,免背', JSON.stringify({ pass: grid.json.pass, st: grid.json.statuses }));
 const crossGrid = await call('recitation.grid', { token: T, qs: `&classId=${C2.id}` });
 check('越权班级总览被拒', crossGrid.status === 403, String(crossGrid.json?.error));
 
@@ -174,6 +184,67 @@ check('导入后名单已刷新', (hwSheet2.json.rows || []).filter((r) => r.rec
 const badImport = await call('homework.import', { token: T, body: { listId: hw.json.ids[1], rows: importRows.slice(0, 1), dryRun: false } });
 check('越权清单导入被拒', badImport.status === 403, String(badImport.json?.error));
 
+// 8b. 长表批量导入：一行一个学生，五列相同自动并成一份清单，可只建清单不登记
+const sNo = (i) => hwSheet.json.rows[i].studentNo;
+const bulkRows = [
+  { className: C1.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', note: '单元练习', studentNo: sNo(0), status: '已交', checkDate: '2026-09-25', recordNote: '第 2 题空' },
+  { className: C1.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: sNo(1), status: '未交' },
+  { className: C1.name, subjectName: YU.name, title: '批量作业B', assignDate: '2026-09-25' },
+  { className: C2.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: alien.student_no, status: '已交' },
+  { className: C1.name, subjectName: MA.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: sNo(0), status: '已交' },
+  { className: C1.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: sNo(0), status: '优秀' },
+  { className: C1.name, subjectName: YU.name, title: '坏日期', assignDate: '2026/9/24', studentNo: sNo(0), status: '已交' },
+  { className: C1.name, subjectName: YU.name, title: '批量作业B', assignDate: '2026-09-25', studentNo: sNo(2), status: '随便' },
+  { className: C1.name, subjectName: YU.name, title: '批量作业B', assignDate: '2026-09-25', studentNo: 'NOPE0002', status: '已交' },
+];
+const line = (j) => new Map((j.json.items || []).map((x) => [x.line, x]));
+const bulkDry = await call('homework.import-lists', { token: T, body: { rows: bulkRows, dryRun: true } });
+const bd = line(bulkDry);
+check('批量导入预检分组计数', bulkDry.json?.ok === true && bulkDry.json.total === 9 && bulkDry.json.created === 3 && bulkDry.json.invalid === 6,
+  JSON.stringify({ t: bulkDry.json?.total, c: bulkDry.json?.created, i: bulkDry.json?.invalid, e: bulkDry.json?.error }));
+check('越权班/科逐行拒绝', bd.get(4)?.errors.some((x) => x.code === 'out_of_scope') && bd.get(5)?.errors.some((x) => x.code === 'out_of_scope'),
+  JSON.stringify([bd.get(4)?.errors, bd.get(5)?.errors]));
+check('同清单同学号重复被标记', bd.get(6)?.errors.some((x) => x.code === 'duplicate_row'), JSON.stringify(bd.get(6)));
+check('坏日期/非法状态/陌生学号分别标记', bd.get(7)?.errors.some((x) => x.code === 'invalid_date')
+  && bd.get(8)?.errors.some((x) => x.code === 'invalid_choice') && bd.get(9)?.errors.some((x) => x.code === 'student_not_found'),
+  JSON.stringify([bd.get(7)?.errors, bd.get(8)?.errors, bd.get(9)?.errors]));
+check('只建清单的行也算新增', bd.get(3)?.action === 'create' && bd.get(3).ok === true, JSON.stringify(bd.get(3)));
+
+const bulkReal = await call('homework.import-lists', { token: T, body: { rows: bulkRows, dryRun: false } });
+check('批量导入只写有效行', bulkReal.json?.ok === true && bulkReal.json.created === 3, JSON.stringify({ c: bulkReal.json?.created, u: bulkReal.json?.updated, i: bulkReal.json?.invalid }));
+const bulkLists = (await call('homework.list', { token: T })).json.lists || [];
+const listA = bulkLists.find((x) => x.title === '批量作业A' && x.classId === C1.id);
+const listB = bulkLists.find((x) => x.title === '批量作业B' && x.classId === C1.id);
+check('一份清单含两名学生登记', !!listA && listA.counts?.已交 === 1 && listA.counts?.未交 === 1 && listA.total >= 2, JSON.stringify(listA && listA.counts));
+check('只建清单的表没有登记', !!listB && Object.keys(listB.counts).length === 0, JSON.stringify(listB && listB.counts));
+check('越权行没有建表', !bulkLists.some((x) => x.classId === C2.id && x.title === '批量作业A'), JSON.stringify(bulkLists.map((x) => x.className)));
+
+const reImport = await call('homework.import-lists', { token: T, body: {
+  rows: [{ className: C1.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: sNo(1), status: '补交' }], dryRun: false } });
+check('再次导入并入同一份清单', reImport.json?.updated === 1 && reImport.json?.created === 0, JSON.stringify(reImport.json?.items?.[0]));
+const sheetA = await call('homework.sheet', { token: T, qs: `&listId=${listA.id}` });
+check('并入后登记已覆盖', sheetA.json?.rows?.find((x) => x.studentNo === sNo(1))?.record?.status === '补交', JSON.stringify(sheetA.json?.rows?.slice(0, 2).map((x) => x.record?.status)));
+check('清单备注不被改写', sheetA.json?.list?.note === '单元练习', String(sheetA.json?.list?.note));
+
+const bulkRec = await call('recitation.import-lists', { token: T, body: { rows: [
+  { className: C1.name, subjectName: YU.name, title: '批量背诵A', part: '第一段', assignDate: '2026-09-24', studentNo: sNo(0), status: '过关' },
+  { className: C1.name, subjectName: YU.name, title: '批量背诵A', part: '第二段', assignDate: '2026-09-24', studentNo: sNo(0), status: '过关' },
+], dryRun: false } });
+const recLists = (await call('recitation.list', { token: T })).json.lists || [];
+const recA = recLists.find((x) => x.title === '批量背诵A' && x.part === '第一段');
+check('段落不同即为两份清单', bulkRec.json?.created === 2 && !!recA && recLists.some((x) => x.title === '批量背诵A' && x.part === '第二段'), String(recLists.filter((x) => x.title === '批量背诵A').length));
+await call('recitation.import-lists', { token: T, body: { rows: [
+  { className: C1.name, subjectName: YU.name, title: '批量背诵A', part: '第一段', assignDate: '2026-09-24', studentNo: sNo(0), status: '待重背' },
+], dryRun: false } });
+const recRow = (await call('recitation.sheet', { token: T, qs: `&listId=${recA.id}` })).json.rows?.find((x) => x.studentNo === sNo(0));
+check('重新导入不改背诵次数', recRow?.record?.status === '待重背' && recRow?.record?.attempt === 1, JSON.stringify(recRow?.record));
+const stuBulk = (await call('students.list', { token: admin, qs: `&classId=${C1.id}` })).json.students[0];
+const adminBulk = await call('homework.import-lists', { token: admin, body: { rows: [
+  { className: C2.name, subjectName: YU.name, title: '批量作业A', assignDate: '2026-09-24', studentNo: stuBulk.student_no, status: '已交' },
+], dryRun: false } });
+check('管理员可导全校班级但学号须属该班', adminBulk.json?.invalid === 1 && adminBulk.json?.items?.[0]?.errors?.[0]?.code === 'student_not_found',
+  JSON.stringify(adminBulk.json?.items?.[0]));
+
 // 9. 学生端只看本人（取有背诵过关记录的那位；roster[0] 的记录在第一步已被撤销）
 const stu = roster[1];
 const seedAcc = await call('accounts.seed-students', { token: admin, body: { classId: C1.id, initialPassword: 'Stu20260929' } });
@@ -183,8 +254,9 @@ const portal = await call('portal.me', { token: ST });
 const recs = portal.json?.recitations || [];
 const hws = portal.json?.homeworks || [];
 check('学生端返回两类记录', Array.isArray(recs) && Array.isArray(hws) && recs.length > 0 && hws.length > 0, `背诵 ${recs.length} / 作业 ${hws.length}`);
-check('学生只看到本人的登记', recs.every((x) => x.title === '《岳阳楼记》' && x.status === '过关' && x.subjectName === '语文')
-  && hws.every((x) => x.title.startsWith('第 3 课课后练习')), JSON.stringify(recs[0] || {}) + ' / ' + JSON.stringify(hws[0] || {}));
+check('学生只看到本人的登记', recs.length === 1 && recs.every((x) => x.title === '《岳阳楼记》' && x.status === '过关' && x.subjectName === '语文')
+  && hws.every((x) => (x.title.startsWith('第 3 课课后练习') || x.title === '批量作业A') && x.subjectName === '语文'),
+  JSON.stringify(recs[0] || {}) + ' / ' + JSON.stringify(hws.map((x) => x.title)));
 check('学生端不含他人姓名', !JSON.stringify(portal.json).includes(alien.name), String(alien.name));
 const denied = await call('recitation.list', { token: ST });
 check('学生不能进登记接口', denied.status === 403, `${denied.status} ${denied.json?.error}`);
@@ -218,6 +290,12 @@ for (const a of (acc.json.accounts || []).filter((x) => ['daily_yw', roster[0].s
 }
 await call('homework.save', { token: admin, body: { id: hwId, delete: true } });
 await call('homework.save', { token: admin, body: { id: hw.json.ids[1], delete: true } });
+for (const l of ((await call('homework.list', { token: admin })).json.lists || []).filter((x) => x.title.startsWith('批量作业'))) {
+  await call('homework.save', { token: admin, body: { id: l.id, delete: true } });
+}
+for (const l of ((await call('recitation.list', { token: admin })).json.lists || []).filter((x) => x.title.startsWith('批量背诵'))) {
+  await call('recitation.save', { token: admin, body: { id: l.id, delete: true } });
+}
 check('测试数据已清理', true);
 
 console.log(results.join('\n'));

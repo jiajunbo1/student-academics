@@ -186,7 +186,7 @@ export function ImportDialog({ open, onClose, title, description, guidance, labe
                 <span className="text-xs text-muted-foreground">{result.dryRun ? "以下为校验结果，尚未写入" : "已写入"}</span>
               </div>
               {!shown.length ? (
-                <EmptyState icon={Upload} title="全部行都会被跳过" description="这些行的学号已存在或分数留空；确认无误后可直接关闭。" />
+                <EmptyState icon={Upload} title="全部行都会被跳过" description="这些行没有需要写入的变化（关键列留空或数据与现状一致）；确认无误后可直接关闭。" />
               ) : (
                 <div className="max-h-72 overflow-y-auto rounded-lg border">
                   <Table className="data-table">

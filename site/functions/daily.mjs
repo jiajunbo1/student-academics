@@ -2,7 +2,7 @@
 // 清单 = 老师布置的一次任务（属某个「学科×班级」对，沿用 teaching_assignments 授权）；
 // 登记 = 清单内单个学生的状态，重复登记计次（第 N 次）。
 import {
-  AppError, ARR, CELL, DATE, DRY, E, ID, IMPORT_MAX_ROWS, OPT_ID, OPT_STR, STR,
+  AppError, ARR, CELL, DATE, DATE_RE, DRY, E, ID, IMPORT_MAX_ROWS, OPT_ID, OPT_STR, STR,
   db, nowIso, ok, fail, importResult, readBody,
 } from './common.mjs';
 import { principal, requireStaff, teachesClass, teachesPair } from './scope.mjs';
@@ -234,11 +234,12 @@ async function actDailyCheck(kindRaw, supabase, request) {
     const row = {
       status,
       check_date: DATE(e.checkDate || today()),
-      note: OPT_STR(e.note, 200),
       recorded_by: p.account.id,
       updated_at: nowIso(),
     };
-    if (kind.hasPlan) row.plan_date = DATE(e.planDate, false);
+    // 总览打勾只提交状态：请求里没出现的备注 / 应背日沿用原值，不能顺手抹掉
+    row.note = 'note' in e ? OPT_STR(e.note, 200) : (prev?.note ?? null);
+    if (kind.hasPlan) row.plan_date = 'planDate' in e ? DATE(e.planDate, false) : (prev?.plan_date ?? null);
     if (kind.hasAttempt) {
       row.attempt = !prev ? 1 : (prev.status === status ? (prev.attempt ?? 1) : (prev.attempt ?? 1) + 1);
     }
@@ -288,8 +289,9 @@ async function actDailyImport(kindRaw, supabase, request) {
         recorded_by: p.account.id, updated_at: nowIso(),
       };
       if (kind.hasPlan) row.plan_date = planDate || null;
-      if (kind.hasAttempt) row.attempt = 1;
       const hit = hits.get(st.id);
+      // 只在首次登记时计第 1 次；重新导入改状态不动已有的背诵次数
+      if (kind.hasAttempt && !hit) row.attempt = 1;
       if (hit) await db(supabase.from(kind.recordTable).update(row).eq('id', hit));
       else await db(supabase.from(kind.recordTable).insert({
         ...row, id: crypto.randomUUID(), [kind.listKey]: task.id, student_id: st.id, created_at: nowIso(),
@@ -298,6 +300,114 @@ async function actDailyImport(kindRaw, supabase, request) {
     items.push({ line: i + 1, label: `${no || '—'} ${st?.name ?? ''} · ${status || '—'}`, ok: !errors.length, action, errors });
   }
   return importResult(dryRun, items, { listId: task.id, title: task.title });
+}
+
+// ---------- POST：批量导入清单（长表，一行 = 一个学生的一次任务） ----------
+// 「班级+科目+标题+段落+布置日期」五列确定一份清单：同一份清单写多行，第一行建表、其余行并入登记。
+// 学号与状态两列留空即只建清单不登记；清单一旦匹配到已有记录就不会被改名（避免整表导入误改元信息）。
+async function actDailyImportLists(kindRaw, supabase, request) {
+  const p = await principal(supabase, request); requireStaff(p);
+  const kind = kindOf(kindRaw);
+  const b = await readBody(request);
+  const dryRun = DRY(b);
+  const raw = ARR(b.rows, IMPORT_MAX_ROWS);
+  if (!raw.length) throw new AppError('missing_field');
+  const [classes, subjects, students, tasks, checks] = await Promise.all([
+    db(supabase.from('classes').select('id,name')),
+    db(supabase.from('subjects').select('id,name')),
+    db(supabase.from('students').select('id,student_no,name,class_id')),
+    db(supabase.from(kind.listTable).select('*')),
+    db(supabase.from(kind.recordTable).select(`id,student_id,${kind.listKey}`)),
+  ]);
+  const classByName = new Map(classes.map((c) => [c.name, c]));
+  const subjectByName = new Map(subjects.map((s) => [s.name, s]));
+  const byNo = new Map(students.map((s) => [s.student_no, s]));
+  const keyOf = (o) => `${o.class_id}|${o.subject_id}|${o.title}|${o.part || ''}|${o.assign_date}`;
+  const byKey = new Map(tasks.map((t) => [keyOf(t), t]));
+  const hitOf = new Map(checks.map((r) => [`${r[kind.listKey]}|${r.student_id}`, r]));
+  const seen = new Set();
+  const items = [];
+  for (const [i, r] of raw.entries()) {
+    const className = CELL(r.className), subjectName = CELL(r.subjectName), title = CELL(r.title);
+    const part = kind.hasPart ? CELL(r.part) : '';
+    const assignDate = CELL(r.assignDate) || today();
+    const dueDate = CELL(r.dueDate), listNote = CELL(r.note);
+    const no = CELL(r.studentNo), status = CELL(r.status);
+    const checkDate = CELL(r.checkDate), planDate = kind.hasPlan ? CELL(r.planDate) : '';
+    const recNote = CELL(r.recordNote);
+    const errors = [];
+    const cls = classByName.get(className);
+    const subj = subjectByName.get(subjectName);
+    if (!className) errors.push(E('className', 'missing_field'));
+    else if (!cls) errors.push(E('className', 'class_not_found'));
+    if (!subjectName) errors.push(E('subjectName', 'missing_field'));
+    else if (!subj) errors.push(E('subjectName', 'subject_not_found'));
+    if (!title) errors.push(E('title', 'missing_field'));
+    else if (title.length > 100) errors.push(E('title', 'text_too_long'));
+    if (part.length > 60) errors.push(E('part', 'text_too_long'));
+    if (listNote.length > 200) errors.push(E('note', 'text_too_long'));
+    if (!DATE_RE.test(assignDate)) errors.push(E('assignDate', 'invalid_date'));
+    if (dueDate && !DATE_RE.test(dueDate)) errors.push(E('dueDate', 'invalid_date'));
+    if (status && !no) errors.push(E('studentNo', 'missing_field'));
+    let student = null;
+    if (no) {
+      const found = byNo.get(no);
+      if (!found || (cls && found.class_id !== cls.id)) errors.push(E('studentNo', 'student_not_found'));
+      else student = found;
+    }
+    if (status && !kind.statuses.includes(status)) errors.push(E('status', 'invalid_choice'));
+    if (checkDate && !DATE_RE.test(checkDate)) errors.push(E('checkDate', 'invalid_date'));
+    if (planDate && !DATE_RE.test(planDate)) errors.push(E('planDate', 'invalid_date'));
+    if (recNote.length > 200) errors.push(E('recordNote', 'text_too_long'));
+    if (cls && subj && !teachesPair(p.scope, subj.id, cls.id)) errors.push(E('className', 'out_of_scope'));
+
+    const key = cls && subj && title ? `${cls.id}|${subj.id}|${title}|${part}|${assignDate}` : '';
+    const task = key ? byKey.get(key) : null;
+    const checked = !!(student && status);
+    const hit = task && checked ? hitOf.get(`${task.id}|${student.id}`) : null;
+    const dupKey = `${key}|${no}`;
+    if (!errors.length && checked) {
+      if (seen.has(dupKey)) errors.push(E('studentNo', 'duplicate_row'));
+      else seen.add(dupKey);
+    }
+    const action = errors.length ? 'invalid'
+      : checked ? (hit ? 'update' : 'create')
+      : task ? 'skip' : 'create';
+    if (!errors.length && !dryRun) {
+      let target = task;
+      if (!target) {
+        const newId = crypto.randomUUID();
+        const row = {
+          id: newId, class_id: cls.id, subject_id: subj.id, title,
+          assign_date: assignDate, due_date: dueDate || null, note: listNote || null,
+          created_by: p.account.id, created_at: nowIso(),
+        };
+        if (kind.hasPart) row.part = part || null;
+        await db(supabase.from(kind.listTable).insert(row));
+        target = { id: newId, class_id: cls.id, subject_id: subj.id, title, part, assign_date: assignDate };
+        byKey.set(key, target);
+      }
+      if (checked) {
+        const rec = {
+          status, check_date: checkDate || today(), note: recNote || null,
+          recorded_by: p.account.id, updated_at: nowIso(),
+        };
+        if (kind.hasPlan) rec.plan_date = planDate || null;
+        if (hit) await db(supabase.from(kind.recordTable).update(rec).eq('id', hit.id));
+        else {
+          if (kind.hasAttempt) rec.attempt = 1;
+          const added = await db(supabase.from(kind.recordTable).insert({
+            ...rec, id: crypto.randomUUID(), [kind.listKey]: target.id, student_id: student.id, created_at: nowIso(),
+          }).select('id'));
+          if (added?.[0]?.id) hitOf.set(`${target.id}|${student.id}`, { id: added[0].id, student_id: student.id });
+        }
+      }
+    }
+    const label = [className || '—', title || '—'].filter(Boolean).join(' · ')
+      + (no ? ` / ${no} ${student?.name ?? ''}`.trimEnd() : '');
+    items.push({ line: i + 1, label: label.trim(), ok: !errors.length, action, errors });
+  }
+  return importResult(dryRun, items, { kind: kindRaw });
 }
 
 // ---------- 学生端：本人的背诵与作业 ----------
@@ -341,8 +451,10 @@ export const dailyRoutes = {
     ['recitation.save', (s, r) => actDailySave('recitation', s, r)],
     ['recitation.check', (s, r) => actDailyCheck('recitation', s, r)],
     ['recitation.import', (s, r) => actDailyImport('recitation', s, r)],
+    ['recitation.import-lists', (s, r) => actDailyImportLists('recitation', s, r)],
     ['homework.save', (s, r) => actDailySave('homework', s, r)],
     ['homework.check', (s, r) => actDailyCheck('homework', s, r)],
     ['homework.import', (s, r) => actDailyImport('homework', s, r)],
+    ['homework.import-lists', (s, r) => actDailyImportLists('homework', s, r)],
   ],
 };

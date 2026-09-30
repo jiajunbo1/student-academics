@@ -570,8 +570,10 @@ async function actDemoSeed(supabase, request) {
 // 每行返回 { line, label, ok, action, errors:[{field,code}] }，无效行不影响其他行写入。
 const keep = (v, old) => (v === '' ? old : v);
 
+// 名单导入对教师开放，但只在任教班级内生效：
+// 目标班不在任教范围、或该生原本属于别班，都逐行拒绝；教师也不能用导入把人转入/转出班级（转班归管理员）。
 async function actImportStudents(supabase, request) {
-  const p = await principal(supabase, request); requireAdmin(p);
+  const p = await principal(supabase, request); requireStaff(p);
   const b = await readBody(request);
   const dryRun = DRY(b);
   const updateExisting = b.updateExisting === true;
@@ -603,8 +605,13 @@ async function actImportStudents(supabase, request) {
     const cls = classByName.get(className);
     if (!className) errors.push(E('className', 'missing_field'));
     else if (!cls) errors.push(E('className', 'class_not_found'));
-    if (no) seen.add(no);
+    else if (!teachesClass(p.scope, cls.id)) errors.push(E('className', 'out_of_scope'));
     const old = known.get(no);
+    if (old && !p.scope.all) {
+      if (!teachesClass(p.scope, old.class_id)) errors.push(E('studentNo', 'out_of_scope'));
+      else if (cls && teachesClass(p.scope, cls.id) && old.class_id !== cls.id) errors.push(E('className', 'student_class_locked'));
+    }
+    if (no) seen.add(no);
     const action = errors.length ? 'invalid' : !old ? 'create' : updateExisting ? 'update' : 'skip';
     if (action === 'update' || action === 'create') {
       const row = {

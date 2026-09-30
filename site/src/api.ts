@@ -29,6 +29,7 @@ const MESSAGES: Record<string, string> = {
   assignments_not_allowed: '只有教师账号需要勾选任教科目与班级。',
   invalid_assignment: '任教勾选无效，请重新选择科目与班级。',
   out_of_scope: '该科目或班级不在你的任教范围内。',
+  student_class_locked: '教师导入不能改学生所在班级，转班请由管理员在学生档案里调整。',
   not_a_student: '该视图仅对学生账号开放。',
   access_denied: '没有访问权限，请联系管理员确认账号角色。',
   forbidden: '当前账号没有该操作权限。',

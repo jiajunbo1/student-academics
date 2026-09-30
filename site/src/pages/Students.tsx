@@ -158,12 +158,8 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         eyebrow={classId ? (className.get(classId) ?? "班级") : "全部班级"}
         description={`共 ${stats.total} 名学生 · 在读 ${stats.active} 人 · 点击任意一行查看完整档案`}
       >
-        {isAdmin && (
-          <>
-            <Button variant="outline" onClick={() => setImporting(true)}><FileUp /> 导入名单</Button>
-            <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>
-          </>
-        )}
+        <Button variant="outline" onClick={() => setImporting(true)}><FileUp /> 导入名单</Button>
+        {isAdmin && <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>}
       </PageHeader>
 
       <div className="mb-4 grid grid-cols-3 gap-3">
@@ -371,7 +367,12 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         guidance={
           <div className="space-y-2">
             <p>表头需包含 <b>学号、姓名、性别、班级</b> 四列，其余列可留空；列顺序不限，按名字识别。出生日期写 <b>YYYY-MM-DD</b>，入学年份写四位年份，状态只能是 {STATUSES.join(" / ")}（留空按「在读」）。班级名必须已在「系统设置」里建好。</p>
-            <p>CSV 里有家庭住址、联系电话、家长信息时也会一并写入；这些内容只在管理员视图出现，学生端不会展示。</p>
+            <p>CSV 里有家庭住址、联系电话、家长信息时也会一并写入；这些内容只在教师与管理员视图出现，学生端不会展示。</p>
+            {!isAdmin && (
+              <p className="rounded-md bg-info/10 px-2.5 py-2 text-info">
+                你只能导入<b>自己任教的班级</b>：班级列填别班会被逐行标为越权并跳过；已存在的学生也不能通过导入改班，转班请让管理员在学生档案里调整。
+              </p>
+            )}
             <label className="flex items-center gap-2 text-xs text-foreground">
               <Checkbox id="roster-overwrite" checked={overwrite} onCheckedChange={(v) => setOverwrite(v === true)} />
               <span>学号已存在时更新该生档案（留空的选填列保持原值）；不勾选则跳过已有学生</span>

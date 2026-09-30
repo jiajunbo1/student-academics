@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCheck, FileUp, Inbox, ListChecks, Pencil, Plus, Table2, Trash2 } from "lucide-react";
+import { CheckCheck, ChevronDown, FileUp, Inbox, ListChecks, Loader2, Pencil, Plus, Check, Table2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -14,7 +17,7 @@ import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, type ImportResult } from "../components/import-export";
 import {
   CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
-  RowCard, StatPills, TableSkeleton, Toolbar, dailyStatusTone, useMarkColors, type SelectOption,
+  RowCard, StatPills, TableSkeleton, Toolbar, TONE_CLASS, dailyStatusTone, useMarkColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, Subject } from "../types";
 
@@ -27,7 +30,7 @@ const META: Record<DailyKind, {
     nav: "背诵登记", listNoun: "背诵清单", titleField: "篇目", titleHint: "如《岳阳楼记》",
     checkNoun: "检查日期", doneLabel: "已过关",
     emptyTitle: "还没有背诵清单",
-    emptyHint: "先定一篇要背的课文，再按学生逐个登记过关情况。",
+    emptyHint: "先定一篇要背的课文，再按学生逐个登记过关情况",
   },
   homework: {
     nav: "作业记录", listNoun: "作业清单", titleField: "作业内容", titleHint: "如 第 3 课课后练习",
@@ -94,6 +97,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
   const [editing, setEditing] = useState<DailyListRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<DailyListRow | null>(null);
+  const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [gridRev, setGridRev] = useState(0);
 
@@ -147,7 +151,8 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
     <div className="page-in space-y-4">
       <Toolbar>
         <FilterSelect value={classId} onChange={setClassId} options={classOptions} allLabel="全部任教班级" ariaLabel="按班级筛选" blockOnMobile />
-        <Button className="ml-auto w-full sm:w-auto" onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>
+        <Button variant="outline" className="ml-auto w-full sm:w-auto" onClick={() => setImporting(true)}><FileUp /> 导入清单</Button>
+        <Button className="w-full sm:w-auto" onClick={() => setCreating(true)}><Plus /> 新建{meta.listNoun}</Button>
       </Toolbar>
       <StatPills className="mb-4">
         <Pill tone="info">进行中 {stat.open} 份</Pill>
@@ -231,10 +236,12 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
         )}
       </Panel>
 
-      <GridPanel kind={kind} classes={classes} classId={gridClassId} rev={gridRev} />
+      <GridPanel kind={kind} classId={gridClassId} rev={gridRev} onChanged={() => void refresh()} />
 
       <ListFormDialog kind={kind} open={creating || !!editing} initial={editing} subjects={subjects} classes={classes}
         onClose={() => { setCreating(false); setEditing(null); }} onSaved={() => void refresh()} />
+      <TasksImportDialog kind={kind} open={importing} classes={classes} subjects={subjects} classId={classId}
+        onClose={() => setImporting(false)} onDone={() => { setImporting(false); void refresh(); }} />
       <SheetDialog kind={kind} listId={sheetId} onClose={() => setSheetId("")} onChanged={() => void refresh()} />
 
       <ConfirmDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}
@@ -301,12 +308,13 @@ function ListCard({ l, colorOf, settled, onOpen, onEdit, onDelete }: {
   );
 }
 
-/** 登记总览：行=学生，列=最近的若干份清单，格子=当次状态 */
-function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: ClassRow[]; classId: string; rev: number }) {
+/** 登记总览：行=学生，列=最近的若干份清单，格子=可直接打勾的勾选框 */
+function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId: string; rev: number; onChanged: () => void }) {
   const meta = META[kind];
   const [days, setDays] = useState("7");
   const [data, setData] = useState<DailyGrid | null>(null);
   const [error, setError] = useState("");
+  const [writing, setWriting] = useState<Record<string, boolean>>({});
   const scopeRef = useRef("");
 
   useEffect(() => {
@@ -325,9 +333,34 @@ function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: 
     return () => { alive = false; };
   }, [kind, classId, days, rev]);
 
+  const pass = data?.pass ?? "";
+  const settled = useMemo(() => new Set(SETTLED[kind]), [kind]);
+
+  /** 打勾即写即存：请求只带状态，备注与应背日由后端沿用原值；失败回滚这一格 */
+  const write = async (listId: string, studentId: string, next: string) => {
+    const key = `${listId}|${studentId}`;
+    const prev = data?.rows.find((r) => r.studentId === studentId)?.cells[listId] ?? null;
+    const patch = (v: string | null) => setData((d) => d && {
+      ...d, rows: d.rows.map((r) => r.studentId === studentId ? { ...r, cells: { ...r.cells, [listId]: v } } : r),
+    });
+    setWriting((w) => ({ ...w, [key]: true }));
+    patch(next || null);
+    try {
+      await apiPost<{ saved: number }>(`${kind}.check`, { listId, entries: [{ studentId, status: next }] });
+      onChanged();
+    } catch (e) {
+      patch(prev);
+      toast.error(errorMessage(e));
+    } finally {
+      setWriting((w) => { const n = { ...w }; delete n[key]; return n; });
+    }
+  };
+
   return (
     <Panel title="登记总览"
-      description={data ? `${data.className} · 最近 ${data.lists.length} 份${meta.listNoun}` : classId ? "正在读取…" : "先在上方选择班级"}
+      description={data
+        ? `${data.className} · 最近 ${data.lists.length} 份${meta.listNoun} · 点格子即记为${pass}`
+        : classId ? "正在读取…" : "先在上方选择班级"}
       action={
         <FilterSelect size="sm" value={days} onChange={setDays} ariaLabel="显示份数"
           options={[
@@ -346,48 +379,123 @@ function GridPanel({ kind, classes, classId, rev }: { kind: DailyKind; classes: 
       ) : !data.lists.length ? (
         <EmptyState icon={Table2} title={`该班级还没有${meta.listNoun}`} description={meta.emptyHint} />
       ) : (
-        /* 窄屏整表横向滑动，学生列冻结在左侧 */
-        <div className="scroll-x -mx-3 px-3 md:mx-0 md:px-0">
-          <Table className="data-table max-md:min-w-max">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
-                {data.lists.map((l) => (
-                  <TableHead key={l.id} className="min-w-24 whitespace-normal">
-                    <span className="block max-w-32 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>{l.title}</span>
-                    <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">{l.assignDate}</span>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.rows.map((r) => {
-                const settled = new Set(SETTLED[kind]);
-                const pending = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
-                return (
-                  <TableRow key={r.studentId}>
-                    <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
-                      <span className="font-medium">{r.name}</span>
-                      <span className="ml-1.5 font-mono text-xs text-muted-foreground">{r.studentNo}</span>
-                      {pending ? <span className="ml-1.5 text-xs text-warning">待补 {pending}</span>
-                        : <Pill tone="success"><span className="ml-1">全部结清</span></Pill>}
-                    </TableCell>
-                    {data.lists.map((l) => {
-                      const v = r.cells[l.id];
-                      return (
-                        <TableCell key={l.id}>
-                          {v ? <Pill tone={dailyStatusTone(v)}>{v}</Pill> : <span className="text-muted-foreground">·</span>}
+        <div className="space-y-2.5">
+          {/* 窄屏整表横向滑动，学生列冻结在左侧 */}
+          <div className="scroll-x -mx-3 px-3 md:mx-0 md:px-0">
+            <Table className="data-table max-md:min-w-max">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
+                  {data.lists.map((l) => {
+                    const done = data.rows.filter((r) => settled.has(r.cells[l.id] ?? "")).length;
+                    return (
+                      <TableHead key={l.id} className="min-w-28 whitespace-normal">
+                        <span className="block max-w-32 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>{l.title}</span>
+                        <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">
+                          {l.assignDate} · {done}/{data.rows.length}
+                        </span>
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.rows.map((r) => {
+                  const todo = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
+                  return (
+                    <TableRow key={r.studentId}>
+                      <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
+                        <span className="font-medium">{r.name}</span>
+                        <span className="ml-1.5 font-mono text-xs text-muted-foreground">{r.studentNo}</span>
+                        {todo ? <span className="ml-1.5 text-xs text-warning">待补 {todo}</span>
+                          : <Pill tone="success"><span className="ml-1">全部结清</span></Pill>}
+                      </TableCell>
+                      {data.lists.map((l) => (
+                        <TableCell key={l.id} className="py-1.5">
+                          <GridTick
+                            statuses={data.statuses} pass={pass}
+                            value={r.cells[l.id] ?? ""}
+                            busy={!!writing[`${l.id}|${r.studentId}`]}
+                            who={r.name}
+                            what={l.part ? `${l.title} · ${l.part}` : l.title}
+                            onSet={(s) => void write(l.id, r.studentId, s)}
+                          />
                         </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            点格子＝{pass}，再点一次撤销；需要其他状态点格子右侧的小箭头，检查日期按今天记。
+            {kind === "recitation"
+              ? "状态变化时背诵次数自动 +1；备注与延背应背日、批量填充仍在清单的名单登记里改。"
+              : "同一学生重复登记会覆盖上次结果；备注与批量填充仍在清单的名单登记里改。"}
+          </p>
         </div>
       )}
     </Panel>
+  );
+}
+
+/** 总览格子：圆形勾选框 + 就地状态角标菜单，写入即保存 */
+function GridTick({ statuses, pass, value, busy, who, what, onSet }: {
+  statuses: string[]; pass: string; value: string; busy: boolean;
+  who: string; what: string;
+  onSet: (status: string) => void;
+}) {
+  const isPass = value === pass;
+  // 其他状态显示成一小片状态色文字，既保留可读性，也让「打勾」只有一种含义
+  const other = !!value && !isPass;
+  const mainLabel = busy ? "登记中"
+    : isPass ? `${who}：已${pass}，点击撤销`
+      : value ? `${who}：当前${value}，点击标为${pass}`
+        : `${who}：标为${pass}`;
+  return (
+    <span className="flex items-center gap-0.5">
+      <button type="button" aria-label={mainLabel} title={mainLabel} disabled={busy}
+        aria-pressed={isPass}
+        onClick={() => onSet(isPass ? "" : pass)}
+        className={cn("flex shrink-0 items-center justify-center rounded-full border transition",
+          other ? "h-10 px-2.5 text-xs font-semibold leading-none md:h-5 md:px-1.5 md:text-[10px]" : "size-10 md:size-6",
+          busy ? "animate-pulse border-primary/40 bg-primary/10 text-primary"
+            : isPass ? "border-success bg-success text-success-foreground shadow-soft"
+              : other ? cn("border-transparent", TONE_CLASS[dailyStatusTone(value)])
+                : "border-dashed border-muted-foreground/45 text-transparent hover:border-success hover:bg-success/10 hover:text-success/60")}>
+        {busy ? <Loader2 className="size-3.5 animate-spin" />
+          : isPass ? <Check className="size-3.5" strokeWidth={3} />
+            : other ? value
+              : <Check className="size-3.5" strokeWidth={3} />}
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label={`${who} · ${what}：选择其他状态`}
+            className={cn("grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground/70",
+              "transition hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:ring-2 focus-visible:ring-ring md:size-5")}>
+            <ChevronDown className="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {statuses.map((s) => (
+            <DropdownMenuItem key={s} onSelect={() => onSet(s)}
+              className={cn("gap-2", value === s && "bg-muted/60 font-medium")}>
+              <span className={cn("grid size-4 place-items-center rounded-full", TONE_CLASS[dailyStatusTone(s)])}>
+                {value === s ? <Check className="size-2.5" strokeWidth={3} /> : ""}
+              </span>
+              {s}
+            </DropdownMenuItem>
+          ))}
+          {value ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          {value ? (
+            <DropdownMenuItem onSelect={() => onSet("")}>撤销该生登记</DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
   );
 }
 
@@ -797,4 +905,122 @@ function dailyRecordsOf(kind: DailyKind, headerCells: string[] | null, body: str
     .filter((r) => r.studentNo || r.status);
   if (!records.length) return { records: [], error: "没有解析出数据行：每行至少要有学号和状态。" };
   return { records };
+}
+
+/** 长表批量导入的列名别名：只认列名，列顺序不限 */
+const TASK_HEADS: Record<string, string[]> = {
+  className: ["班级"],
+  subjectName: ["科目"],
+  assignDate: ["布置日期"],
+  dueDate: ["截止日期"],
+  note: ["清单备注", "备注"],
+  studentNo: ["学号"],
+  status: ["状态", "完成情况"],
+  checkDate: ["检查日期", "过关日期", "批改日期"],
+  planDate: ["计划日期", "应背日期"],
+  recordNote: ["登记备注", "批改备注"],
+};
+const TASK_TITLE_HEADS: Record<DailyKind, string[]> = {
+  recitation: ["篇目", "标题", "作业内容"],
+  homework: ["作业内容", "标题", "篇目"],
+};
+const TASK_IMPORT_LABELS: Record<string, string> = {
+  className: "班级", subjectName: "科目", title: "标题", part: "段落", assignDate: "布置日期",
+  dueDate: "截止日期", note: "清单备注", studentNo: "学号", status: "状态",
+  checkDate: "检查日期", planDate: "计划日期", recordNote: "登记备注",
+};
+/** 与后端 KINDS 的状态集保持一致，仅用于模板示例与说明文案 */
+const TASK_STATUSES: Record<DailyKind, string[]> = {
+  recitation: ["过关", "待重背", "延背", "免背"],
+  homework: ["已交", "未交", "补交", "优秀", "需订正"],
+};
+
+function taskRecordsOf(kind: DailyKind, headerCells: string[] | null, body: string[][]) {
+  if (!headerCells) return { records: [], error: `这份文件必须带表头行，至少要有「班级, 科目, ${TASK_TITLE_HEADS[kind][0]}」三列。` };
+  const at = (names: string[]) => headerCells.findIndex((h) => names.includes(h));
+  const idx: Record<string, number> = {
+    className: at(TASK_HEADS.className),
+    subjectName: at(TASK_HEADS.subjectName),
+    title: at(TASK_TITLE_HEADS[kind]),
+    part: kind === "recitation" ? at(["段落", "段落范围", "范围"]) : -1,
+    assignDate: at(TASK_HEADS.assignDate),
+    dueDate: at(TASK_HEADS.dueDate),
+    note: at(TASK_HEADS.note),
+    studentNo: at(TASK_HEADS.studentNo),
+    status: at(TASK_HEADS.status),
+    checkDate: at(TASK_HEADS.checkDate),
+    planDate: kind === "recitation" ? at(TASK_HEADS.planDate) : -1,
+    recordNote: at(TASK_HEADS.recordNote),
+  };
+  const lack = ["className", "subjectName", "title"].filter((k) => idx[k] < 0).map((k) => TASK_IMPORT_LABELS[k]);
+  if (lack.length) return { records: [], error: `表头缺少必填列：${lack.join("、")}。可先点「下载模板」照着填。` };
+  if (idx.status >= 0 && idx.studentNo < 0) {
+    return { records: [], error: "表头里有「状态」却没有「学号」：登记要成对填；只建清单请把这两列一起删掉。" };
+  }
+  const pick = (cells: string[], key: string) => (idx[key] >= 0 ? (cells[idx[key]] ?? "").trim() : "");
+  const records = body
+    .map((cells) => ({
+      className: pick(cells, "className"), subjectName: pick(cells, "subjectName"), title: pick(cells, "title"),
+      part: pick(cells, "part"), assignDate: pick(cells, "assignDate"), dueDate: pick(cells, "dueDate"),
+      note: pick(cells, "note"), studentNo: pick(cells, "studentNo"), status: pick(cells, "status"),
+      checkDate: pick(cells, "checkDate"), planDate: pick(cells, "planDate"), recordNote: pick(cells, "recordNote"),
+    }))
+    .filter((r) => Object.values(r).some((v) => v));
+  if (!records.length) return { records: [], error: "没有解析出数据行：每行至少要有班级、科目和标题。" };
+  return { records };
+}
+
+/** 清单批量导入：一行一个学生，「班级+科目+标题+段落+布置日期」相同的行自动并成同一份清单 */
+function TasksImportDialog({ kind, open, classes, subjects, classId, onClose, onDone }: {
+  kind: DailyKind; open: boolean; classes: ClassRow[]; subjects: Subject[]; classId: string;
+  onClose: () => void; onDone: () => void;
+}) {
+  const meta = META[kind];
+  const labels = { ...TASK_IMPORT_LABELS, title: meta.titleField };
+  const cls = (classId ? classes.find((c) => c.id === classId) : undefined)?.name
+    ?? classes[0]?.name ?? "高一(1)班";
+  const cls2 = classes.find((c) => c.name !== cls)?.name ?? cls;
+  const subj = subjects[0]?.name ?? "语文";
+  const [pass, pending] = TASK_STATUSES[kind];
+  const example = kind === "recitation" ? "《岳阳楼记》" : "第 3 课课后练习";
+  const example2 = kind === "recitation" ? "《劝学》" : "第 4 课课后练习";
+  const cols = [
+    "班级", "科目", meta.titleField, ...(kind === "recitation" ? ["段落"] : []),
+    "布置日期", "截止日期", "清单备注", "学号", "状态", "检查日期",
+    ...(kind === "recitation" ? ["计划日期"] : []), "登记备注",
+  ];
+  const row = (o: { c: string; t: string; p?: string; no?: string; st?: string; rn?: string }): (string | number | null)[] => [
+    o.c, subj, o.t, ...(kind === "recitation" ? [o.p ?? ""] : []), today(), "", "",
+    o.no ?? "", o.st ?? "", today(), ...(kind === "recitation" ? [""] : []), o.rn ?? "",
+  ];
+
+  return (
+    <ImportDialog
+      open={open}
+      onClose={onClose}
+      onDone={onDone}
+      title={`导入${meta.listNoun}`}
+      description={`一行 = 一个学生的一次任务；「班级+科目+${labels.title}+${kind === "recitation" ? "段落+" : ""}布置日期」相同的行会自动并成一份清单，不用先建表。一次最多 500 行。`}
+      header="班级"
+      labels={labels}
+      templateName={`${meta.listNoun}导入模板.csv`}
+      template={() => [
+        cols,
+        row({ c: cls, t: example, p: "第四段", no: "20240101", st: pass, rn: "第一段熟练" }),
+        row({ c: cls, t: example, p: "第四段", no: "20240102", st: pending, rn: "约定周五补背" }),
+        row({ c: cls2, t: example2 }),
+      ]}
+      toRecords={(headerCells, body) => taskRecordsOf(kind, headerCells, body)}
+      guidance={
+        <div className="space-y-2">
+          <p>同一份清单有多个学生就写多行，<b>班级、科目、{labels.title}</b>{kind === "recitation" ? <b>、段落</b> : null}、布置日期<b>五列写得完全一样</b>即可合并；只要有一列不同就是另一份清单。</p>
+          <p><b>学号、状态留空</b>则这行只建清单不登记；状态取值：{TASK_STATUSES[kind].join(" / ")}。学号要和该班「学生档案」里的学号一致，别班学号会被标为未找到。</p>
+          <p>日期一律 YYYY-MM-DD，布置日期与{meta.checkNoun}留空都按今天；<b>清单备注</b>写进{meta.listNoun}本身，<b>登记备注</b>写进该生的登记。</p>
+          <p>五列能匹配到已有{meta.listNoun}时不会重复创建，登记直接并入（{meta.listNoun}的截止日期与备注不会被改写）；该生已登记则覆盖状态，{kind === "recitation" ? "背诵次数保持不变" : "批改结果按最新一次"}。</p>
+          <p>科目×班级必须在你的任教范围内（管理员为全校），越权行会逐行标注原因并跳过，不影响其他行写入。</p>
+        </div>
+      }
+      submit={(rows, dryRun) => apiPost<ImportResult>(`${kind}.import-lists`, { rows, dryRun })}
+    />
+  );
 }

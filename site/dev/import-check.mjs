@@ -172,9 +172,11 @@ let teacherToken = '';
 await step('教师导入受任教范围约束', async () => {
   const stale = (await api('accounts.list', null, undefined, admin)).accounts.find((a) => a.username === 'imp_teacher');
   if (stale) await api('accounts.delete', null, { id: stale.id }, admin);
+  const C2 = cls('高一(2)班');
+  const C3 = cls('高二(3)班');
   const created = await api('accounts.save', null, {
     username: 'imp_teacher', displayName: '导入老师', role: 'TEACHER', password: TEACHER_PW,
-    assignments: [{ subjectId: subj('语文').id, classId: C1.id }],
+    assignments: [{ subjectId: subj('语文').id, classId: C1.id }, { subjectId: subj('语文').id, classId: C2.id }],
   }, admin);
   let login = await call('auth.login', null, { username: 'imp_teacher', password: TEACHER_PW });
   const firstTok = login.json?.token;
@@ -185,7 +187,8 @@ await step('教师导入受任教范围约束', async () => {
   check('初始口令改密后可用', !!teacherToken);
   const exam = ref.exams[0];
   const inClass = (await api('students.list', null, undefined, teacherToken)).students;
-  const other = (await studentsOf()).find((s) => s.class_id !== C1.id);
+  const other = (await studentsOf()).find((s) => s.class_id !== C1.id && s.class_id !== C2.id);
+  const c1 = (await studentsOf()).filter((s) => s.class_id === C1.id);
   const r = await api('import.scores', null, {
     examId: exam.id, dryRun: true,
     rows: [
@@ -201,8 +204,36 @@ await step('教师导入受任教范围约束', async () => {
   check('别班学生按未找到处理', by.get(3)?.errors.some((e) => e.code === 'student_not_found'));
   const write = await api('import.scores', null, { examId: exam.id, dryRun: false, rows: [{ studentNo: inClass[0].student_no, subjectName: '语文', score: '101' }] }, teacherToken);
   check('教师确能落库', write.created + write.updated === 1);
-  const roster = await call('import.students', null, { rows: [{ studentNo: 'T9100', name: '甲', gender: '男', className: C1.name }], dryRun: true }, teacherToken);
-  check('教师不能导名单', errOf(roster) === 'forbidden', JSON.stringify(roster.json));
+  // 名单导入对教师开放，但只在任教班级内生效
+  const rIn = await call('import.students', null, {
+    rows: [
+      { studentNo: 'T9100', name: '教师补录', gender: '男', className: C1.name },
+      { studentNo: 'T9101', name: '教师越班', gender: '女', className: C3.name },
+      { studentNo: other.student_no, name: '别班生', gender: '女', className: C1.name },
+      { studentNo: c1[0].student_no, name: '任教班之间挪班', gender: '女', className: C2.name },
+      { studentNo: c1[1].student_no, name: '未任教班挪班', gender: '女', className: C3.name },
+    ],
+    dryRun: true, updateExisting: true,
+  }, teacherToken);
+  const rb = rowsByLine(rIn.json);
+  check('教师可导任教班级', rb.get(1)?.action === 'create', JSON.stringify(rb.get(1)));
+  check('别班目标被逐行拒绝', rb.get(2)?.errors.some((e) => e.field === 'className' && e.code === 'out_of_scope'), JSON.stringify(rb.get(2)));
+  check('别班已有学生不可改', rb.get(3)?.errors.some((e) => e.field === 'studentNo' && e.code === 'out_of_scope'), JSON.stringify(rb.get(3)));
+  // 两个任教班之间也不能靠导入挪班，且只报一条 student_class_locked（不重复报越权）
+  check('教师导入不能改班', rb.get(4)?.errors.some((e) => e.code === 'student_class_locked') && rb.get(4)?.errors.length === 1 && rb.get(4)?.action === 'invalid', JSON.stringify(rb.get(4)));
+  check('未任教班挪班只报越权', rb.get(5)?.errors.some((e) => e.field === 'className' && e.code === 'out_of_scope') && !rb.get(5)?.errors.some((e) => e.code === 'student_class_locked'), JSON.stringify(rb.get(5)));
+  const rSelf = await call('import.students', null, {
+    rows: [{ studentNo: c1[0].student_no, name: '本班生改名', gender: '女', className: C1.name }],
+    dryRun: true, updateExisting: true,
+  }, teacherToken);
+  check('同班改名可覆盖', rowsByLine(rSelf.json).get(1)?.action === 'update', JSON.stringify(rowsByLine(rSelf.json).get(1)));
+  const rWrite = await api('import.students', null, {
+    rows: [{ studentNo: 'T9100', name: '教师补录', gender: '男', className: C1.name }], dryRun: false,
+  }, teacherToken);
+  check('教师导入真实落库', rWrite.created === 1, JSON.stringify({ c: rWrite.created, u: rWrite.updated, i: rWrite.invalid }));
+  const stillThere = (await studentsOf()).find((s) => s.student_no === 'T9100');
+  check('落库学生在任教班', stillThere?.class_id === C1.id, JSON.stringify(stillThere && { n: stillThere.name, c: stillThere.class_id }));
+  if (stillThere) await api('students.delete', null, { id: stillThere.id }, admin);
   await api('accounts.delete', null, { id: created.id }, admin);
   console.log('  ok   临时教师账号已清理');
 });
