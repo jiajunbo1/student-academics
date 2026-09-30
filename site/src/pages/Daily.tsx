@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCheck, ChevronDown, FileUp, Inbox, ListChecks, Loader2, Pencil, Plus, Check, Table2, Trash2 } from "lucide-react";
+import { CheckCheck, ChevronDown, Download, FileUp, Inbox, ListChecks, Loader2, Pencil, Plus, Check, Table2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage } from "../api";
-import { ImportDialog, type ImportResult } from "../components/import-export";
+import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
   CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
   RowCard, StatPills, TableSkeleton, Toolbar, TONE_CLASS, dailyStatusTone, useMarkColors, type SelectOption,
@@ -356,18 +356,38 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
     }
   };
 
+  // 列名带上布置日期：同一篇目重复布置时导出结果不会撞成同名列
+  const headOf = (l: DailyGrid["lists"][number]) =>
+    `${l.title}${l.part ? ` ${l.part}` : ""} ${l.assignDate}`;
+
+  const exportGrid = () => {
+    if (!data?.lists.length) return;
+    downloadCsv(`${meta.nav}总览_${data.className}_${today()}.csv`, [
+      ["学号", "姓名", "待补", ...data.lists.map(headOf)],
+      ...data.rows.map((r) => {
+        const todo = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
+        return [r.studentNo, r.name, todo, ...data.lists.map((l) => r.cells[l.id] ?? "")];
+      }),
+    ]);
+  };
+
   return (
     <Panel title="登记总览"
       description={data
         ? `${data.className} · 最近 ${data.lists.length} 份${meta.listNoun} · 点格子即记为${pass}`
         : classId ? "正在读取…" : "先在上方选择班级"}
       action={
-        <FilterSelect size="sm" value={days} onChange={setDays} ariaLabel="显示份数"
-          options={[
-            { value: "5", label: "最近 5 份" },
-            { value: "7", label: "最近 7 份" },
-            { value: "14", label: "最近 14 份" },
-          ]} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={exportGrid} disabled={!data?.lists.length}>
+            <Download /> 导出总览
+          </Button>
+          <FilterSelect size="sm" value={days} onChange={setDays} ariaLabel="显示份数"
+            options={[
+              { value: "5", label: "最近 5 份" },
+              { value: "7", label: "最近 7 份" },
+              { value: "14", label: "最近 14 份" },
+            ]} />
+        </div>
       }
       contentClassName="p-3 md:p-0">
       {!classId ? (
@@ -704,6 +724,22 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
     ]),
   ];
 
+  /** 导出这一份清单的登记结果：列名与导入模板一致，改完可以直接导回 */
+  const exportSheet = () => {
+    if (!data) return;
+    downloadCsv(
+      `${data.list.title}${data.list.part ? `_${data.list.part}` : ""}_${data.list.className}.csv`,
+      [
+        ["学号", "姓名", "学籍状态", "状态", "检查日期",
+          ...(kind === "recitation" ? ["次数", "计划日期"] : []), "备注", "登记人"],
+        ...data.rows.map((r) => [
+          r.studentNo, r.name, r.status, r.record?.status ?? "", r.record?.checkDate ?? "",
+          ...(kind === "recitation" ? [r.record?.attempt ?? "", r.record?.planDate ?? ""] : []),
+          r.record?.note ?? "", r.record?.recordedByName ?? "",
+        ]),
+      ]);
+  };
+
   return (
     <Dialog open={!!listId} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="sm:max-w-4xl">
@@ -737,8 +773,11 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
               <FilterSelect size="sm" value={fill} onChange={fillRest} ariaLabel="批量填充未登记" allLabel="批量填充未登记"
                 className="w-full min-w-0 md:w-auto md:min-w-32"
                 options={data.statuses.map((s) => ({ value: s, label: `填为「${s}」` }))} />
-              <Button size="sm" variant="outline" className="w-full md:ml-auto md:w-auto" onClick={() => setImporting(true)}>
+              <Button size="sm" variant="outline" className="max-md:col-span-2 md:w-auto" onClick={() => setImporting(true)}>
                 <FileUp /> 批量导入
+              </Button>
+              <Button size="sm" variant="outline" className="max-md:col-span-2 md:ml-auto md:w-auto" onClick={exportSheet}>
+                <Download /> 导出登记结果
               </Button>
             </div>
 
@@ -868,7 +907,7 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
             toRecords={(headerCells, body) => dailyRecordsOf(kind, headerCells, body)}
             guidance={
               <div className="space-y-2">
-                <p>表头需含 <b>学号, 状态</b>{kind === "recitation" ? "，可选 检查日期, 计划日期, 备注" : "，可选 检查日期, 备注"}；状态取值：{data.statuses.join(" / ")}。</p>
+                <p>表头需含 <b>学号, 状态</b>{kind === "recitation" ? "，可选 检查日期, 计划日期, 备注" : "，可选 检查日期, 备注"}；状态取值：{data.statuses.join(" / ")}。<b>状态留空的行会被忽略</b>，所以本页「导出登记结果」的表可以直接改完导回。</p>
                 <p>日期为 YYYY-MM-DD；学号必须属于这份清单所在的班级，越权行会标注原因并跳过。</p>
                 <p>已登记过的学生会被<b>覆盖</b>，导入按第一次登记计次。</p>
               </div>
@@ -902,8 +941,8 @@ function dailyRecordsOf(kind: DailyKind, headerCells: string[] | null, body: str
       planDate: planAt >= 0 ? (cells[planAt] ?? "").trim() : "",
       note: noteAt >= 0 ? (cells[noteAt] ?? "").trim() : "",
     }))
-    .filter((r) => r.studentNo || r.status);
-  if (!records.length) return { records: [], error: "没有解析出数据行：每行至少要有学号和状态。" };
+    .filter((r) => r.studentNo && r.status);
+  if (!records.length) return { records: [], error: "没有可导入的登记：每行都要有学号和状态（状态留空的行按「本次不改」忽略）。" };
   return { records };
 }
 

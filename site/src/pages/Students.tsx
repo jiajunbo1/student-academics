@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileUp, GraduationCap, Plus, Search, Trash2, Pencil, Users, UserX, CalendarClock } from "lucide-react";
+import { FileUp, Download, GraduationCap, Plus, Search, Trash2, Pencil, Users, UserX, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
-import { ImportDialog, type ImportResult } from "../components/import-export";
+import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
   CardList, ClassDot, ClassMark, ConfirmDialog, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
   useMarkColors,
@@ -39,6 +39,21 @@ const ROSTER_COLS = [
   { key: "guardianPhone", head: "家长电话" },
 ];
 const ROSTER_LABELS = Object.fromEntries(ROSTER_COLS.map((c) => [c.key, c.head]));
+
+/** 名单导出的取值：列顺序与导入模板完全一致，导出来改完能直接导回 */
+const ROSTER_VALUE: Record<string, (r: StudentRow) => string | number> = {
+  studentNo: (r) => r.student_no,
+  name: (r) => r.name,
+  gender: (r) => r.gender,
+  birthDate: (r) => r.birth_date ?? "",
+  className: (r) => r.className ?? "",
+  enrollYear: (r) => r.enroll_year ?? "",
+  status: (r) => r.status,
+  address: (r) => r.address ?? "",
+  phone: (r) => r.phone ?? "",
+  guardianName: (r) => r.guardian_name ?? "",
+  guardianPhone: (r) => r.guardian_phone ?? "",
+};
 
 function rosterRecords(headerCells: string[] | null, body: string[][]) {
   const at = headerCells ? ROSTER_COLS.map((c) => headerCells.indexOf(c.head)) : ROSTER_COLS.map((_, i) => i);
@@ -151,6 +166,16 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
   const colorOf = useMarkColors(classes.map((c) => c.name));
 
+  /** 导出的就是列表当前看到的这些行（后端已按任教范围过滤），表头与导入模板一致 */
+  const exportRoster = () => {
+    if (!rows.length) { toast.error("当前筛选下没有学生，先调整筛选或导入名单"); return; }
+    const scope = classId ? (className.get(classId) ?? "班级") : (status || "全校");
+    downloadCsv(`学生名单_${scope}.csv`, [
+      ROSTER_COLS.map((c) => c.head),
+      ...rows.map((r) => ROSTER_COLS.map((c) => ROSTER_VALUE[c.key](r))),
+    ]);
+  };
+
   return (
     <div className="page-in">
       <PageHeader
@@ -158,6 +183,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         eyebrow={classId ? (className.get(classId) ?? "班级") : "全部班级"}
         description={`共 ${stats.total} 名学生 · 在读 ${stats.active} 人 · 点击任意一行查看完整档案`}
       >
+        <Button variant="outline" onClick={exportRoster}><Download /> 导出名单</Button>
         <Button variant="outline" onClick={() => setImporting(true)}><FileUp /> 导入名单</Button>
         {isAdmin && <Button onClick={() => openEdit()}><Plus /> 添加学生</Button>}
       </PageHeader>
