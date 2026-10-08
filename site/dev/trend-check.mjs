@@ -104,7 +104,7 @@ await step('scores.trend 入参校验', async () => {
   check('无成绩科目返回空走势', empty.exams.length === 0 && empty.students.length === 0, JSON.stringify(empty.exams));
 });
 
-await step('教师只能看任教科目×班级', async () => {
+await step('教师看得到任教班级内的全部科目走势', async () => {
   const yuwen = subject('语文'); const shuxue = subject('数学');
   const c1 = klass('高一(1)班'); const c3 = klass('高二(3)班');
   const stale = okData(await call('accounts.list', null, undefined, admin), 'accounts.list').accounts.find((a) => a.username === 'trend_teacher');
@@ -123,8 +123,10 @@ await step('教师只能看任教科目×班级', async () => {
   check('均分序列可画线', t.exams.some((e) => typeof t.classAvg[c1.id][e.id] === 'number'));
   const cross = await call('scores.trend', { subjectId: yuwen.id, classId: c3.id }, undefined, tok);
   check('请求他班被拒 403', cross?.error === 'forbidden', JSON.stringify(cross));
-  const other = await call('scores.trend', { subjectId: shuxue.id }, undefined, tok);
-  check('请求他科被拒 403', other?.error === 'out_of_scope', JSON.stringify(other));
+  const other = okData(await call('scores.trend', { subjectId: shuxue.id }, undefined, tok), '教师看别科走势');
+  check('别科走势只含任教班', other.classes.length === 1 && other.classes[0].id === c1.id, other.classes.map((c) => c.name).join(','));
+  check('别科学生只来自任教班', other.students.every((s) => s.classId === c1.id));
+  check('别科均分序列可画线', other.exams.some((e) => typeof other.classAvg[c1.id][e.id] === 'number'));
   const anon = await call('scores.trend', { subjectId: yuwen.id });
   check('未登录被拒', anon?.error === 'login_required', JSON.stringify(anon));
 

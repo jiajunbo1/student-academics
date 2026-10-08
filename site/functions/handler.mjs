@@ -226,20 +226,22 @@ async function actAccountsSeedStudents(supabase, request) {
 async function actDashboard(supabase, request) {
   const p = await principal(supabase, request); requireStaff(p);
   const scope = p.scope;
+  // 账号数量是管理数据：只有管理员才查、才下发
   const [studentRows, classRows, adminCount, teacherCount, exams] = await Promise.all([
     db(supabase.from('students').select('id,name,class_id')),
     db(supabase.from('classes').select('id')),
-    count(supabase, 'accounts', ['role', 'ADMIN']), count(supabase, 'accounts', ['role', 'TEACHER']),
+    scope.all ? count(supabase, 'accounts', ['role', 'ADMIN']) : Promise.resolve(0),
+    scope.all ? count(supabase, 'accounts', ['role', 'TEACHER']) : Promise.resolve(0),
     count(supabase, 'exams'),
   ]);
   const students = scope.all ? studentRows : studentRows.filter(s => teachesClass(scope, s.class_id));
   const classList = scope.all ? classRows : classRows.filter(c => teachesClass(scope, c.id));
-  const teachers = adminCount + teacherCount;
   const studentClass = new Map(studentRows.map(s => [s.id, s.class_id]));
   let lastExam = null, subjectAvgs = [], scoreRows = [];
   const examList = await db(supabase.from('exams').select('id,name,exam_date').order('exam_date', { ascending: false }));
   for (const e of examList) {
     const rows = await db(supabase.from('scores').select('subject_id,student_id,score').eq('exam_id', e.id));
+    // 班级在范围内即可看全科：各科平均分是「这几个班考得怎么样」，不限自己教的科目
     const mine = rows.filter(r => {
       const cid = studentClass.get(r.student_id);
       return cid !== undefined && teachesClass(scope, cid);
@@ -250,7 +252,6 @@ async function actDashboard(supabase, request) {
     const subjects = await db(supabase.from('subjects').select('id,name').order('sort'));
     const agg = new Map();
     for (const r of scoreRows) {
-      if (!teachesSubject(scope, r.subject_id)) continue;
       const a = agg.get(r.subject_id) || { sum: 0, n: 0 };
       a.sum += r.score; a.n += 1; agg.set(r.subject_id, a);
     }
@@ -258,7 +259,8 @@ async function actDashboard(supabase, request) {
       .map(s => ({ name: s.name, avg: +(agg.get(s.id).sum / agg.get(s.id).n / 10).toFixed(1) }));
   }
   return ok({
-    counts: { students: students.length, classes: classList.length, teachers, exams },
+    counts: { students: students.length, classes: classList.length, exams,
+      ...(scope.all ? { teachers: adminCount + teacherCount } : {}) },
     lastExam, subjectAvgs,
   });
 }
@@ -305,7 +307,8 @@ async function actStudentsGet(supabase, request, params) {
   ]);
   return ok({
     student: { ...student, className: (classes.find(c => c.id === student.class_id) || {}).name || '' },
-    scores: scores.filter(s => teachesPair(p.scope, s.subject_id, student.class_id)),
+    // 班级在范围内就看全科成绩：科目授权只限制能不能改，不限制能不能看
+    scores,
   });
 }
 
@@ -369,7 +372,12 @@ async function actRefData(supabase, request) {
     db(supabase.from('subjects').select('*').order('sort')),
     db(supabase.from('exams').select('*').order('exam_date', { ascending: false })),
   ]);
-  return ok({ subjects: subjects.filter(s => teachesSubject(p.scope, s.id)), exams });
+  // subjects 用于「看」（科目名、列表、图表），mySubjectIds 用于「写」（录入/新建清单只列自己任教的）
+  return ok({
+    subjects,
+    mySubjectIds: subjects.filter(s => teachesSubject(p.scope, s.id)).map(s => s.id),
+    exams,
+  });
 }
 
 async function actScoreSheet(supabase, request, params) {
@@ -385,18 +393,15 @@ async function actScoreSheet(supabase, request, params) {
   ]);
   const scoreKey = new Map(scores.map(s => [`${s.student_id}|${s.subject_id}`, s.score]));
   const cn = new Map(classes.map(c => [c.id, c.name]));
-  // 教师只出自己有任教科目的列；已选班级时按「科目×班级」精确收窄。
-  const present = subjects.filter(sub => scores.some(s => s.subject_id === sub.id)
-    && (p.scope.all || (classId ? teachesPair(p.scope, sub.id, classId) : teachesSubject(p.scope, sub.id))));
+  // 看得着 = 班级在范围内（全科成绩、总分、排名都出）；改得动 = 科目×班级命中，由 scores.save / 导入把关
+  const inScope = students.filter(st => teachesClass(p.scope, st.class_id) && (!classId || st.class_id === classId));
+  const present = subjects.filter(sub => inScope.some(st => scoreKey.has(`${st.id}|${sub.id}`)));
   const rows = [];
-  for (const st of students) {
-    if (!teachesClass(p.scope, st.class_id)) continue;
-    if (classId && st.class_id !== classId) continue;
-    const cols = present.filter(sub => teachesPair(p.scope, sub.id, st.class_id));
-    if (!cols.some(sub => scoreKey.has(`${st.id}|${sub.id}`))) continue;
+  for (const st of inScope) {
+    if (!present.some(sub => scoreKey.has(`${st.id}|${sub.id}`))) continue;
     const cells = {};
     let total = 0; let n = 0;
-    for (const sub of cols) {
+    for (const sub of present) {
       const v = scoreKey.get(`${st.id}|${sub.id}`);
       cells[sub.id] = v === undefined ? null : v;
       if (v !== undefined) { total += v; n += 1; }
@@ -419,12 +424,11 @@ async function actScoreSheet(supabase, request, params) {
 }
 
 // 某一科目的历年走势：按考试 × 班级给出平均分，并附带每个学生的历次得分。
-// 只统计请求者任教范围内的班级，科目不在范围内直接拒绝。
+// 科目不做限制（看别人教的科目是允许的），只统计请求者任教班级内的数据。
 async function actSubjectTrend(supabase, request, params) {
   const p = await principal(supabase, request); requireStaff(p);
   const subjectId = ID(params.get('subjectId'));
   const classId = params.get('classId') ? ID(params.get('classId')) : null;
-  if (!teachesSubject(p.scope, subjectId)) return fail('out_of_scope', 403);
   if (classId && !teachesClass(p.scope, classId)) return fail('forbidden', 403);
   const [subject, exams, classes, students, scores] = await Promise.all([
     db(supabase.from('subjects').select('id,name').eq('id', subjectId).maybeSingle()),
@@ -442,7 +446,7 @@ async function actSubjectTrend(supabase, request, params) {
   const studentScores = new Map(); // studentId -> { examId: tenths }
   for (const r of scores) {
     const st = byStudent.get(r.student_id);
-    if (!st || !teachesPair(p.scope, subjectId, st.class_id)) continue;
+    if (!st) continue;
     const m = studentScores.get(r.student_id) || {};
     m[r.exam_id] = r.score; studentScores.set(r.student_id, m);
     const key = `${st.class_id}|${r.exam_id}`;

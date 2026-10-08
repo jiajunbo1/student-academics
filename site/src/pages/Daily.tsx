@@ -19,7 +19,7 @@ import {
   CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
   RowCard, StatPills, TableSkeleton, Toolbar, TONE_CLASS, dailyStatusTone, useMarkColors, type SelectOption,
 } from "../components/app-ui";
-import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, Subject } from "../types";
+import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, RefData, Subject } from "../types";
 
 /** 两类登记共用同一套界面，只差文案与后端下发的字段开关 */
 const META: Record<DailyKind, {
@@ -56,9 +56,11 @@ export default function Daily() {
       try {
         const [c, r] = await Promise.all([
           apiGet<{ classes: ClassRow[] }>("classes.list"),
-          apiGet<{ subjects: Subject[] }>("refdata"),
+          apiGet<RefData>("refdata"),
         ]);
-        setClasses(c.classes); setSubjects(r.subjects);
+        setClasses(c.classes);
+        // 建清单是写操作：只列本人任教的科目
+        setSubjects(r.subjects.filter((s) => r.mySubjectIds.includes(s.id)));
       } catch (e) { toast.error(errorMessage(e)); }
     })();
   }, []);

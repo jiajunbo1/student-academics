@@ -74,10 +74,12 @@ const login2 = await call('auth.login', { body: { username: 'yw_teacher', passwo
 const T = login2.json.token;
 check('改密后可正常登录', login2.json?.account?.mustChange === false, String(login2.json?.error || ''));
 
-// 3. 读侧过滤
+// 3. 读侧：班级在范围内就看全科，科目授权只限制写入
 const tRd = await call('refdata', { token: T });
-check('教师只看到语文科目', tRd.json?.subjects?.length === 1 && tRd.json.subjects[0].name === '语文',
+check('教师能看全部科目名', tRd.json?.subjects?.length === rd.json.subjects.length,
   (tRd.json?.subjects || []).map((s) => s.name).join(','));
+check('教师可录科目只有语文', tRd.json?.mySubjectIds?.length === 1 && tRd.json.mySubjectIds[0] === CHinese.id,
+  JSON.stringify(tRd.json?.mySubjectIds));
 const tCl = await call('classes.list', { token: T });
 check('教师只看到高一(1)班', tCl.json?.classes?.length === 1 && tCl.json.classes[0].name === '高一(1)班',
   (tCl.json?.classes || []).map((c) => c.name).join(','));
@@ -85,21 +87,30 @@ const tSt = await call('students.list', { token: T });
 check('学生列表只含本班', (tSt.json?.students || []).every((s) => s.className === '高一(1)班')
   && tSt.json.students.length === C1.studentCount, `${tSt.json?.students?.length} 人`);
 const tSheet = await call('scores.sheet', { token: T, qs: `&examId=${examId}` });
-check('成绩单只有语文列', tSheet.json?.subjects?.length === 1 && tSheet.json.subjects[0].name === '语文',
+check('成绩单出本班全部科目列', tSheet.json?.subjects?.length === 5,
   (tSheet.json?.subjects || []).map((s) => s.name).join(','));
 check('成绩单行只属本班', (tSheet.json?.rows || []).every((r) => r.className === '高一(1)班'), `${tSheet.json?.rows?.length} 行`);
+check('总分按全部科目计', (() => {
+  const r = tSheet.json.rows.find((x) => x.studentId === ownStudent.studentId);
+  const cells = tSheet.json.subjects.map((s) => r.cells[s.id]).filter((v) => v != null);
+  return r.total === cells.reduce((a, b) => a + b, 0) && r.count === cells.length;
+})(), JSON.stringify(tSheet.json.rows?.[0] ?? {}).slice(0, 120));
 const tCross = await call('scores.sheet', { token: T, qs: `&examId=${examId}&classId=${C3.id}` });
 check('跨班取成绩单被拒', tCross.status === 403, `${tCross.status} ${tCross.json?.error}`);
 const tGetOther = await call('students.get', { token: T, qs: `&id=${otherStudent.id}` });
 check('查看别班学生档案被拒', tGetOther.status === 403, `${tGetOther.status} ${tGetOther.json?.error}`);
 const tGetOwn = await call('students.get', { token: T, qs: `&id=${ownStudent.studentId}` });
-check('本班学生成绩只含语文', (tGetOwn.json?.scores || []).every((s) => s.subject_id === CHinese.id),
-  `${tGetOwn.json?.scores?.length} 条`);
+check('本班学生档案含全科成绩', (tGetOwn.json?.scores || []).length > 1
+  && new Set(tGetOwn.json.scores.map((s) => s.subject_id)).size > 1, `${tGetOwn.json?.scores?.length} 条`);
 const tDash = await call('dashboard', { token: T });
-check('看板只统计本班本科学科', tDash.json?.subjectAvgs?.length === 1 && tDash.json.subjectAvgs[0].name === '语文',
+check('看板出本班全部科目平均分', (tDash.json?.subjectAvgs || []).length > 1
+  && tDash.json.subjectAvgs.some((s) => s.name === '语文'),
   (tDash.json?.subjectAvgs || []).map((s) => `${s.name}:${s.avg}`).join(','));
 check('看板人数按范围收敛', tDash.json?.counts?.students === C1.studentCount && tDash.json?.counts?.classes === 1,
   JSON.stringify(tDash.json?.counts));
+check('教师端不下发账号数量', tDash.json?.counts?.teachers === undefined, JSON.stringify(tDash.json?.counts));
+const aDash = await call('dashboard', { token: admin });
+check('管理员端仍有账号数量', typeof aDash.json?.counts?.teachers === 'number', JSON.stringify(aDash.json?.counts));
 
 // 4. 写侧过滤
 const badSubject = await call('scores.save', { token: T, body: { examId, subjectId: MATH.id, entries: [{ studentId: ownStudent.studentId, score: 99 }] } });

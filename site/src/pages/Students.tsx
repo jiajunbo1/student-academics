@@ -19,7 +19,7 @@ import {
   useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
-import type { StudentRow, ClassRow, ScoreRow, Subject, Exam } from "../types";
+import type { StudentRow, ClassRow, ScoreRow, RefData } from "../types";
 
 const STATUSES = ["在读", "休学", "转班", "毕业"];
 const STATUS_OPTIONS: SelectOption[] = STATUSES.map((s) => ({ value: s, label: s }));
@@ -90,7 +90,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const [detail, setDetail] = useState<{
     student: StudentRow; scores: ScoreRow[];
   } | null>(null);
-  const [refData, setRefData] = useState<{ subjects: Subject[]; exams: Exam[] }>({ subjects: [], exams: [] });
+  const [refData, setRefData] = useState<RefData>({ subjects: [], mySubjectIds: [], exams: [] });
   const [importing, setImporting] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<StudentRow | null>(null);
@@ -155,7 +155,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
     try {
       const [d, r] = await Promise.all([
         apiGet<NonNullable<typeof detail>>("students.get", { id: row.id }),
-        apiGet<{ subjects: Subject[]; exams: Exam[] }>("refdata"),
+        apiGet<RefData>("refdata"),
       ]);
       setDetail(d); setRefData(r);
     } catch (e) { toast.error(errorMessage(e)); }

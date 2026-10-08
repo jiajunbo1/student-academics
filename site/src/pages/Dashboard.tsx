@@ -53,7 +53,7 @@ export default function Dashboard({ onChangeTab, isAdmin }: { onChangeTab: (t: T
   if (data.counts.students === 0) {
     return (
       <div>
-        <PageHeader title="总览看板" description={isAdmin ? "全校学生与成绩的整体情况" : "你任教的科目与班级内的学生与成绩"} />
+        <PageHeader title="总览看板" description={isAdmin ? "全校学生与成绩的整体情况" : "你任教班级内的学生与全部科目成绩"} />
         <EmptyState
           icon={Inbox}
           title="还没有任何数据"
@@ -89,17 +89,19 @@ export default function Dashboard({ onChangeTab, isAdmin }: { onChangeTab: (t: T
 
   return (
     <div className="page-in space-y-4">
-      <PageHeader title="总览看板" eyebrow={isAdmin ? "全校概览" : "任教范围概览"} description={isAdmin ? "全校学生与成绩的整体情况" : "你任教的科目与班级内的学生与成绩"}>
+      <PageHeader title="总览看板" eyebrow={isAdmin ? "全校概览" : "任教范围概览"} description={isAdmin ? "全校学生与成绩的整体情况" : "你任教班级内的学生与全部科目成绩"}>
         {data.lastExam ? (
           <Pill tone="primary">{data.lastExam.name} · {data.lastExam.exam_date}</Pill>
         ) : null}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className={isAdmin ? "grid grid-cols-2 gap-3 lg:grid-cols-4" : "grid grid-cols-2 gap-3 lg:grid-cols-3"}>
         <StatCard icon={Users} label="学生总数" value={data.counts.students} hint={`${data.counts.classes} 个班级`} onClick={() => onChangeTab("students")} />
-        <StatCard icon={Layers} label="班级数" value={data.counts.classes} tone="info" hint="按年级编排" onClick={() => onChangeTab("settings")} />
-        <StatCard icon={UserRound} label="教师账号" value={data.counts.teachers} tone="success" hint="含管理员" onClick={() => onChangeTab("settings")} />
-        <StatCard icon={ScrollText} label="考试数" value={data.counts.exams} tone="warning" hint={data.lastExam ? `最近：${data.lastExam.name}` : "尚未录入成绩"} onClick={() => onChangeTab("scores")} />
+        <StatCard icon={Layers} label={isAdmin ? "班级数" : "任教班级"} value={data.counts.classes} tone="info"
+          hint={isAdmin ? "按年级编排" : "按科目授权"} onClick={() => onChangeTab("settings")} />
+        {isAdmin && <StatCard icon={UserRound} label="教师账号" value={data.counts.teachers} tone="success" hint="含管理员" onClick={() => onChangeTab("settings")} />}
+        <StatCard className={isAdmin ? undefined : "col-span-2 lg:col-span-1"} icon={ScrollText} label="考试数"
+          value={data.counts.exams} tone="warning" hint={data.lastExam ? `最近：${data.lastExam.name}` : "尚未录入成绩"} onClick={() => onChangeTab("scores")} />
       </div>
 
       <Panel

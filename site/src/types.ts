@@ -31,6 +31,9 @@ export interface StudentRow {
 export interface Subject { id: string; name: string; code: string; sort: number; }
 export interface Exam { id: string; name: string; exam_date: string; term: string; }
 
+/** refdata：subjects 是「能看的」（全站科目名与列表），mySubjectIds 是「能改的」（本人任教科目） */
+export interface RefData { subjects: Subject[]; mySubjectIds: string[]; exams: Exam[]; }
+
 export interface ScoreRow {
   id: string; student_id: string; subject_id: string; exam_id: string;
   score: number; created_at?: string;
@@ -56,7 +59,8 @@ export interface SubjectTrend {
 }
 
 export interface DashboardData {
-  counts: { students: number; classes: number; teachers: number; exams: number };
+  /** teachers 只有管理员拿得到（账号数量是管理数据，教师端不下发也不显示） */
+  counts: { students: number; classes: number; teachers?: number; exams: number };
   lastExam: { id: string; name: string; exam_date: string } | null;
   subjectAvgs: { name: string; avg: number }[];
 }

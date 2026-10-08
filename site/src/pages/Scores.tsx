@@ -21,11 +21,12 @@ import {
   CardList, ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText,
   TableSkeleton, Toolbar, trendDomain, useMarkColors, useMarkColorValues, useThemeColors, type SelectOption,
 } from "../components/app-ui";
-import type { ClassRow, Exam, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
+import type { ClassRow, Exam, RefData, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
 
 export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   const [classes, setClasses] = useState<ClassRow[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  /** 看与改分开：mine 只含本人任教的科目（录入/模板/导入用），sheet.subjects 是可见的全部科目列 */
+  const [mine, setMine] = useState<Subject[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [examId, setExamId] = useState("");
   const [classId, setClassId] = useState("");
@@ -48,11 +49,12 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       try {
         const [c, r] = await Promise.all([
           apiGet<{ classes: ClassRow[] }>("classes.list"),
-          apiGet<{ subjects: Subject[]; exams: Exam[] }>("refdata"),
+          apiGet<RefData>("refdata"),
         ]);
-        setClasses(c.classes); setSubjects(r.subjects); setExams(r.exams);
+        const writable = r.subjects.filter((s) => r.mySubjectIds.includes(s.id));
+        setClasses(c.classes); setMine(writable); setExams(r.exams);
         if (r.exams[0]) setExamId(r.exams[0].id);
-        if (r.subjects[0]) setSubjectId(r.subjects[0].id);
+        if (writable[0]) setSubjectId(writable[0].id);
       } catch (e) { toast.error(errorMessage(e)); }
     })();
   }, []);
@@ -113,30 +115,46 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const exam = exams.find((e) => e.id === examId);
-  const subject = subjects.find((s) => s.id === subjectId);
+  const subject = mine.find((s) => s.id === subjectId);
   const examOptions = useMemo<SelectOption[]>(() => exams.map((e) => ({ value: e.id, label: e.name })), [exams]);
   const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
-  const subjectOptions = useMemo<SelectOption[]>(() => subjects.map((s) => ({ value: s.id, label: s.name })), [subjects]);
+  const subjectOptions = useMemo<SelectOption[]>(() => mine.map((s) => ({ value: s.id, label: s.name })), [mine]);
+  /** 总表里非本人任教的列：能看不能改，用置灰 + 提示区分 */
+  const canEdit = useMemo(() => new Set(mine.map((s) => s.id)), [mine]);
   const colorOf = useMarkColors(classes.map((c) => c.name));
   const filledCount = useMemo(() => {
     if (!sheet) return 0;
     return sheet.rows.filter((r) => sheet.subjects.some((s) => r.cells[s.id] != null)).length;
   }, [sheet]);
+  const scopeName = classOptions.find((o) => o.value === classId)?.label ?? (isAdmin ? "全校" : "任教班级");
 
-  // 成绩表既是导出结果，也是导入模板：行=当前筛选下的全部学生，列=可见科目，空格表示该科不改。
-  const scoreCsv = useMemo<(string | number | null)[][]>(() => {
+  /** 导入模板：行 = 当前筛选下的全部学生，列 = 我能录入的科目，空格表示该科不改 */
+  const templateCsv = useMemo<(string | number | null)[][]>(() => {
     const cells = new Map((sheet?.rows ?? []).map((r) => [r.studentId, r.cells]));
     return [
-      ["学号", "姓名", "班级", ...subjects.map((s) => s.name)],
+      ["学号", "姓名", "班级", ...mine.map((s) => s.name)],
       ...students.map((st) => [
         st.student_no, st.name, st.className ?? "",
-        ...subjects.map((s) => { const v = cells.get(st.id)?.[s.id]; return v == null ? "" : v / 10; }),
+        ...mine.map((s) => { const v = cells.get(st.id)?.[s.id]; return v == null ? "" : v / 10; }),
       ]),
     ];
-  }, [sheet, students, subjects]);
+  }, [sheet, students, mine]);
+
+  /** 导出成绩表：按总表原样出全部可见科目，附总分/平均/班内名次；不是自己任教的科目只读 */
+  const viewCsv = useMemo<(string | number | null)[][]>(() => {
+    const cols = sheet?.subjects ?? [];
+    return [
+      ["学号", "姓名", "班级", ...cols.map((s) => s.name), "总分", "平均", "班内名次"],
+      ...(sheet?.rows ?? []).map((r) => [
+        r.studentNo, r.studentName, r.className,
+        ...cols.map((s) => { const v = r.cells[s.id]; return v == null ? "" : v / 10; }),
+        r.total / 10, r.avg, r.classRank,
+      ]),
+    ];
+  }, [sheet]);
   const exportScoreCsv = () => {
-    if (!students.length) { toast.error("当前筛选下没有学生，先选班级或到「学生档案」导入名单"); return; }
-    downloadCsv(`成绩导入模板_${exam?.name ?? ""}_${classOptions.find((o) => o.value === classId)?.label ?? "全校"}.csv`, scoreCsv);
+    if (!sheet?.rows.length) { toast.error("这场考试还没有成绩记录，先录入或导入"); return; }
+    downloadCsv(`成绩表_${exam?.name ?? ""}_${scopeName}.csv`, viewCsv);
   };
 
   return (
@@ -144,7 +162,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       <PageHeader
         title="成绩管理"
         eyebrow={classId ? (classOptions.find((c) => c.value === classId)?.label ?? "班级") : isAdmin ? "全校" : "任教范围"}
-        description={exam ? `${exam.term} · ${exam.exam_date}${classId ? "" : isAdmin ? " · 全校数据" : " · 仅你任教的科目与班级"}` : "选择考试后查看成绩单或录入分数"}
+        description={exam ? `${exam.term} · ${exam.exam_date}${classId ? "" : isAdmin ? " · 全校数据" : " · 任教班级全科可看"}` : "选择考试后查看成绩单或录入分数"}
       >
         {isAdmin && <Button variant="outline" onClick={() => setExamDialog(true)}><Plus /> 新建考试</Button>}
         <Button variant="outline" onClick={exportScoreCsv} disabled={!exam}><Download /> 导出成绩表</Button>
@@ -162,7 +180,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
         <TabsContent value="sheet" className="mt-4">
           <Panel
             title="科目成绩单"
-            description={exam ? `${exam.name} · 分数为原始分，满分 150；点击科目名可看历年走势` : undefined}
+            description={exam ? `${exam.name} · 分数为原始分，满分 150；点击科目名可看历年走势${isAdmin ? "" : "，总分含全班全部科目"}` : undefined}
             action={sheet?.rows.length ? <Badge variant="secondary" className="font-normal">{sheet.rows.length} 人</Badge> : undefined}
             contentClassName="p-3 md:p-0"
           >
@@ -200,7 +218,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                           <button
                             key={s.id}
                             type="button"
-                            title={`查看 ${s.name} 历年成绩走势`}
+                            title={canEdit.has(s.id) ? `查看 ${s.name} 历年成绩走势` : `${s.name} 由其他老师任教：可看不可录入`}
                             onClick={() => setTrendFor(s)}
                             className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg bg-muted/60 px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
                           >
@@ -223,8 +241,9 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                           <TableHead key={s.id} className="text-right whitespace-nowrap">
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                              title={`查看 ${s.name} 历年成绩走势`}
+                              className={cn("inline-flex items-center gap-1 rounded-sm font-medium transition-colors hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                                canEdit.has(s.id) ? "text-foreground" : "text-muted-foreground")}
+                              title={canEdit.has(s.id) ? `查看 ${s.name} 历年成绩走势` : `${s.name} 由其他老师任教：可以看分数和走势，不能录入`}
                               onClick={() => setTrendFor(s)}
                             >
                               {s.name}
@@ -354,13 +373,13 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
         header="学号"
         labels={SCORE_LABELS}
         templateName={`成绩导入模板_${exam?.name ?? ""}.csv`}
-        template={() => scoreCsv}
-        toRecords={scoreRecordsOf(subjects.map((s) => s.name))}
+        template={() => templateCsv}
+        toRecords={scoreRecordsOf(mine.map((s) => s.name))}
         guidance={
           <div className="space-y-2">
-            <p>支持两种表头，其余列忽略：<b>学号, 科目, 分数</b>（长表，一行一个分数），或本页「导出成绩表」的宽表 <b>学号, 姓名, 班级, 语文, 数学…</b>（自动按列拆成多条）。</p>
+            <p>支持两种表头，其余列忽略：<b>学号, 科目, 分数</b>（长表，一行一个分数），或「下载模板」的宽表 <b>学号, 姓名, 班级, 语文, 数学…</b>（自动按列拆成多条）。</p>
             <p>分数为 0-150，最多一位小数；<b>留空表示该科不改动</b>，要作废某条成绩请到「成绩录入」清空后保存。</p>
-            <p>切换目标考试请在页面上方选好考试后再打开本窗口。教师只会拿到自己任教科目与班级内的行，越权行会标注原因并跳过。</p>
+            <p>切换目标考试请在页面上方选好考试后再打开本窗口。<b>成绩都能看，但只有你任教的科目能写</b>：模板只列可录入的科目，导入别班或别科的行会标注越权原因并跳过。</p>
           </div>
         }
         submit={(rows, dryRun) => apiPost<ImportResult>("import.scores", { examId, rows, dryRun })}
