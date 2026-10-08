@@ -4,11 +4,10 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { apiGet, errorMessage, fmtScore } from "../api";
 import type { DashboardData } from "../types";
-import { EmptyState, PageHeader, Panel, Pill, StatCard, TableSkeleton, useThemeColors } from "../components/app-ui";
+import { CardSkeleton, EmptyState, PageHeader, Panel, Pill, StatBar, StatCard, TableSkeleton, useThemeColors } from "../components/app-ui";
 
 type Tab = "dashboard" | "students" | "scores" | "settings";
 
@@ -43,7 +42,7 @@ export default function Dashboard({ onChangeTab, isAdmin }: { onChangeTab: (t: T
       <div>
         <PageHeader title="总览看板" description="正在读取统计数据…" />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl border bg-card" />)}
+          {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
         <Panel className="mt-4"><TableSkeleton rows={5} cols={3} /></Panel>
       </div>
@@ -143,20 +142,8 @@ export default function Dashboard({ onChangeTab, isAdmin }: { onChangeTab: (t: T
 
       <Panel title="关键指标" description="按当前数据即时汇总">
         <div className="grid gap-5 sm:grid-cols-2">
-          <div>
-            <div className="flex items-baseline justify-between text-sm">
-              <span className="text-muted-foreground">科目及格率（平均分 ≥ 90）</span>
-              <span className="font-semibold">{passRate}%</span>
-            </div>
-            <Progress value={passRate} className="mt-2" />
-          </div>
-          <div>
-            <div className="flex items-baseline justify-between text-sm">
-              <span className="text-muted-foreground">最近一次考试平均分</span>
-              <span className="font-semibold">{fmtScore(overallAvg)} / 150</span>
-            </div>
-            <Progress value={overallAvg / 15} className="mt-2" />
-          </div>
+          <StatBar label="科目及格率（平均分 ≥ 90）" value={passRate} max={100} />
+          <StatBar label="最近一次考试平均分" value={overallAvg} max={150} text={`${fmtScore(overallAvg)} / 150`} />
         </div>
       </Panel>
     </div>

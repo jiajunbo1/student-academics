@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/table";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { cn } from "@/lib/utils";
-import { CardList, ClassDot, ClassMark, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, useMarkColors, type SelectOption } from "../components/app-ui";
+import {
+  CardList, ClassDot, ClassMark, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, SortHead,
+  TableSkeleton, TotalCell, TotalRow, useMarkColors, useTableSort, type SelectOption,
+} from "../components/app-ui";
 import { ChangePasswordForm } from "../components/auth-screens";
 import type { AccountRow, ClassRow, Me, Subject } from "../types";
 
@@ -120,6 +123,21 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
 
   const colorOf = useMarkColors(classes.map((c) => c.name));
 
+  // 表头点击排序：班级与账号各一份状态，未点时保持后端原序；窄屏卡片跟表格用同一份顺序
+  const { sorted: shownClasses, sort: classSort, toggle: toggleClassSort } = useTableSort(classes, {
+    name: (c) => c.name,
+    grade: (c) => c.grade,
+    students: (c) => c.studentCount,
+  });
+  const { sorted: shownAccounts, sort: accSort, toggle: toggleAccSort } = useTableSort(accounts, {
+    account: (a) => a.displayName || a.username,
+    role: (a) => ROLE_LABEL[a.role] ?? a.role,
+    student: (a) => a.studentName,
+    // 前缀数字是为了按严重程度排：正常 → 锁定 → 待改密码 → 停用
+    status: (a) => (a.status !== "active" ? "3 停用" : a.mustChange ? "2 待改密码" : a.lockedUntil ? "1 锁定" : "0 正常"),
+    login: (a) => a.lastLoginAt ?? "",
+  });
+
   return (
     <div className="page-in space-y-4">
       <PageHeader title="系统设置" eyebrow="后台维护" description="维护班级、登录账号与初始化演示数据。" />
@@ -139,12 +157,12 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
             </Button>
           </div>
         )}
-        {loading ? <p className="py-6 text-center text-sm text-muted-foreground">加载中…</p> : !classes.length ? (
+        {loading ? <TableSkeleton rows={4} cols={3} /> : !classes.length ? (
           <EmptyState icon={Building2} title="还没有班级" description={isAdmin ? "先创建一个班级，学生档案才能归属到班。" : "请联系管理员创建班级。"} />
         ) : (
           <>
             <CardList className="md:hidden">
-              {classes.map((c) => (
+              {shownClasses.map((c) => (
                 <RowCard
                   key={c.id}
                   leading={<ClassMark name={c.name} color={colorOf(c.name)} large />}
@@ -162,9 +180,16 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
             </CardList>
             <div className="hidden overflow-x-auto md:block">
               <Table className="data-table">
-                <TableHeader><TableRow><TableHead>班级</TableHead><TableHead>年级</TableHead><TableHead>人数</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow>
+                    <SortHead label="班级" col="name" sort={classSort} onSort={toggleClassSort} />
+                    <SortHead label="年级" col="grade" sort={classSort} onSort={toggleClassSort} />
+                    <SortHead label="人数" col="students" sort={classSort} onSort={toggleClassSort} />
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
-                  {classes.map((c) => (
+                  {shownClasses.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">
                         <span className="flex items-center gap-1.5">
@@ -183,6 +208,11 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                     </TableRow>
                   ))}
                 </TableBody>
+                <TotalRow>
+                  <TotalCell note colSpan={4}>
+                    共 {shownClasses.length} 个班级 · 在册 {shownClasses.reduce((n, c) => n + c.studentCount, 0)} 人
+                  </TotalCell>
+                </TotalRow>
               </Table>
             </div>
           </>
@@ -257,12 +287,12 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
               </p>
             </div>
 
-            {loading ? <p className="py-6 text-center text-sm text-muted-foreground">加载中…</p> : !accounts.length ? (
+            {loading ? <TableSkeleton rows={5} cols={4} /> : !accounts.length ? (
               <EmptyState icon={UserCog} title="还没有账号" description="至少保留当前管理员账号，教师与学生账号可在上方开通。" />
             ) : (
               <>
                 <CardList className="md:hidden">
-                  {accounts.map((a) => (
+                  {shownAccounts.map((a) => (
                     <RowCard
                       key={a.id}
                       leading={
@@ -338,15 +368,17 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                   <Table className="data-table">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>账号</TableHead><TableHead>角色</TableHead>
+                      <SortHead label="账号" col="account" sort={accSort} onSort={toggleAccSort} />
+                      <SortHead label="角色" col="role" sort={accSort} onSort={toggleAccSort} />
                       <TableHead className="hidden lg:table-cell">任教范围</TableHead>
-                      <TableHead>关联学生</TableHead>
-                      <TableHead>状态</TableHead><TableHead>最近登录</TableHead>
+                      <SortHead label="关联学生" col="student" sort={accSort} onSort={toggleAccSort} />
+                      <SortHead label="状态" col="status" sort={accSort} onSort={toggleAccSort} />
+                      <SortHead label="最近登录" col="login" sort={accSort} onSort={toggleAccSort} title="点击按最近登录时间排序（升 → 降 → 还原）" />
                       <TableHead className="text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {accounts.map((a) => (
+                    {shownAccounts.map((a) => (
                       <TableRow key={a.id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -421,6 +453,14 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                       </TableRow>
                     ))}
                   </TableBody>
+                  <TotalRow>
+                    <TotalCell note colSpan={7}>
+                      共 {shownAccounts.length} 个账号 · 管理员 {shownAccounts.filter((a) => a.role === "ADMIN").length} ·
+                      教师 {shownAccounts.filter((a) => a.role === "TEACHER").length} ·
+                      学生 {shownAccounts.filter((a) => a.role === "STUDENT").length} ·
+                      已停用 {shownAccounts.filter((a) => a.status !== "active").length}
+                    </TotalCell>
+                  </TotalRow>
                 </Table>
               </div>
               </>

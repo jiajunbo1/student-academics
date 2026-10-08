@@ -75,8 +75,9 @@
   --class-4: #a5670a;
   --class-5: #c2495f;
 
-  /* 密度层：表格行高 */
+  /* 密度层：表格行高、斑马纹浓度（深浅两态分别标定，见 .dark） */
   --row-h: 2.25rem;
+  --zebra-a: 50%;
 
   /* 质感层：卡片抬升、底部抽屉阴影、抽屉圆角与手机安全区 */
   --shadow-lift: 0 2px 4px rgba(16, 24, 40, 0.06), 0 14px 30px -16px rgba(16, 24, 40, 0.26);
@@ -130,6 +131,10 @@
   --sidebar-accent-foreground: #bfd7ff;
   --sidebar-border: #ffffff1a;
   --sidebar-ring: #6aa6ff;
+
+  /* 深色下 --muted 与 --card 的明度差只有 4.85（浅色是 6.15），同浓度条纹几乎看不见，
+     按实测色差（ΔE≈2.9，与浅色的 3.0 对齐）把浓度单独抬高 */
+  --zebra-a: 60%;
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
 
@@ -276,7 +281,57 @@ body {
 }
 
 .data-table tbody tr:hover {
-  background: color-mix(in oklab, var(--brand) 6%, transparent);
+  --tint: var(--brand);
+  --tint-a: 9%;
+  background: color-mix(in oklab, var(--brand) 9%, transparent);
+}
+
+/* 斑马纹：偶数行浅底，全站 .data-table 一个口径，页面不要再自己写 i%2。
+   放进 components 层：Tailwind 的 utilities 层在后面，行级工具类（如 bg-primary/5）才压得住条纹；
+   :where() 再把特异度压到 0。
+   浓度走 --zebra-a（浅色 50%、深色 60%）：两态都实测到与卡片底 ΔE≈3，即"能看出分行、
+   又不跟内容抢视线"的那一档；写死 25% 时深色只有 ΔE 1，等于没有。
+   --tint/--tint-a 记的是「这一行的底色和浓度」，冻结列用同一份变量把自己补平，
+   否则偶数行滑到冻结列会出现一条断色。悬停规则在未分层区，未分层优先于所有分层。 */
+@layer components {
+  :where(.data-table tbody tr) {
+    --tint: var(--card);
+    --tint-a: 0%;
+  }
+
+  :where(.data-table tbody tr:nth-child(even)) {
+    --tint: var(--muted);
+    --tint-a: var(--zebra-a);
+    background-color: color-mix(in oklab, var(--muted) var(--zebra-a), transparent);
+  }
+
+  /* 待保存的改动行：登记弹窗用它标出「这一行改过还没存」。走同一组 --tint 变量，
+     冻结的学生列才会跟着一起亮；浓度压在条纹之上（ΔE≈6），偶数行也不会盖掉它。 */
+  .data-table tbody tr.row-changed {
+    --tint: var(--primary);
+    --tint-a: 8%;
+    background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+  }
+}
+
+/* 表体限高滚动 + 表头吸顶。
+   滚动必须发生在 shadcn 的 table-container 上：外层再套一个 overflow 容器，
+   sticky 就会 relative 到那个永不纵向滚动的容器而失效，所以 max-height 由这里下发。
+   分隔线画在 th 的 inset 阴影上，因为表头横线的 border 属于 tr，行吸住时线会跟着内容滚走。
+   限高用 --table-max 由调用方给（[--table-max:52vh]），这里只留兜底值——不能写成
+   .scroll-body 的默认值，未分层规则会盖掉调用方那一层 utilities。 */
+.scroll-body [data-slot="table-container"] {
+  max-height: var(--table-max, 20rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.scroll-body thead th {
+  position: sticky;
+  top: 0;
+  z-index: 11;
+  background-color: var(--card);
+  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 /* 冻结列的边界：横向滑动时用一道渐隐阴影交代「后面还有内容被压住了」 */
@@ -296,6 +351,13 @@ body {
 
 .dark .freeze-end {
   box-shadow: -6px 0 10px -8px rgba(0, 0, 0, 0.8);
+}
+
+/* 冻结列必须不透明才压得住滑过来的内容，所以它按所在行的底色变量重新调和一次：
+   未分层规则优先于 utilities 层的 bg-card，表头拿不到 --tint 时兜底成纯 card。 */
+.data-table .freeze-start,
+.data-table .freeze-end {
+  background-color: color-mix(in oklab, var(--tint, var(--card)) var(--tint-a, 0%), var(--card));
 }
 
 /* 数字与表头统一用等宽数字，避免成绩列跳动 */

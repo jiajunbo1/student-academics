@@ -12,14 +12,14 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { apiGet, apiPost, errorMessage } from "../api";
+import { apiGet, apiPost, errorMessage, fmtScore } from "../api";
 import { downloadCsv, ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  CardList, ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText,
-  TableSkeleton, Toolbar, trendDomain, useMarkColors, useMarkColorValues, useThemeColors, type SelectOption,
+  CardList, ChartSkeleton, ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText,
+  SortHead, TableSkeleton, Toolbar, TotalCell, TOTAL_FOOT_CLASS, trendDomain, useMarkColors, useMarkColorValues, useTableSort, useThemeColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, Exam, RefData, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
 
@@ -128,6 +128,41 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   }, [sheet]);
   const scopeName = classOptions.find((o) => o.value === classId)?.label ?? (isAdmin ? "全校" : "任教班级");
 
+  // 表头点击排序：科目列点开是走势弹窗、不当排序用，只给名次/学生/班级/总分/平均五列开；窄屏卡片跟同一份顺序
+  const { sorted: sheetRows, sort, toggle } = useTableSort(sheet?.rows ?? [], {
+    rank: (r) => r.classRank,
+    name: (r) => r.studentName,
+    className: (r) => r.className,
+    total: (r) => r.total,
+    avg: (r) => r.avg,
+  });
+
+  /**
+   * 合计行三档口径：班级平均 / 及格（满分 150 及格线 90 分 = 900 个十分之一分）/ 最高 · 最低。
+   * 每一列只统计该列有分的人，所以「平均」行下面标的是一科的分母，不是整场人数。
+   */
+  const summary = useMemo(() => {
+    if (!sheet) return null;
+    const cols = sheet.subjects.map((s) => {
+      const vals = sheet.rows.map((r) => r.cells[s.id]).filter((v): v is number => v != null);
+      const sum = vals.reduce((a, b) => a + b, 0);
+      return {
+        avg: vals.length ? fmtScore(Math.round(sum / vals.length)) : "—",
+        pass: vals.length ? `${vals.filter((v) => v >= 900).length}/${vals.length}` : "—",
+        range: vals.length ? `${fmtScore(Math.max(...vals))} / ${fmtScore(Math.min(...vals))}` : "—",
+      };
+    });
+    const scored = sheet.rows.filter((r) => r.count > 0);
+    const totals = scored.map((r) => r.total);
+    const sumTotal = totals.reduce((a, b) => a + b, 0);
+    return {
+      cols,
+      scoredCount: scored.length,
+      totalAvg: totals.length ? fmtScore(Math.round(sumTotal / totals.length)) : "—",
+      avgOfAvg: scored.length ? (scored.reduce((a, r) => a + r.avg, 0) / scored.length).toFixed(1) : "—",
+    };
+  }, [sheet]);
+
   /** 导入模板：行 = 当前筛选下的全部学生，列 = 我能录入的科目，空格表示该科不改 */
   const templateCsv = useMemo<(string | number | null)[][]>(() => {
     const cells = new Map((sheet?.rows ?? []).map((r) => [r.studentId, r.cells]));
@@ -195,7 +230,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
             ) : (
               <>
                 <CardList className="md:hidden">
-                  {sheet.rows.map((r) => (
+                  {sheetRows.map((r) => (
                     <RowCard
                       key={r.studentId}
                       leading={<ClassMark name={r.studentName} color={colorOf(r.className)} large />}
@@ -234,9 +269,9 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                   <Table className="data-table">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>名次</TableHead>
-                        <TableHead>学生</TableHead>
-                        <TableHead>班级</TableHead>
+                        <SortHead label="名次" col="rank" sort={sort} onSort={toggle} />
+                        <SortHead label="学生" col="name" sort={sort} onSort={toggle} />
+                        <SortHead label="班级" col="className" sort={sort} onSort={toggle} />
                         {sheet.subjects.map((s) => (
                           <TableHead key={s.id} className="text-right whitespace-nowrap">
                             <button
@@ -251,12 +286,12 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                             </button>
                           </TableHead>
                         ))}
-                        <TableHead className="text-right">总分</TableHead>
-                        <TableHead className="text-right">平均</TableHead>
+                        <SortHead label="总分" col="total" sort={sort} onSort={toggle} className="text-right" />
+                        <SortHead label="平均" col="avg" sort={sort} onSort={toggle} className="text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {sheet.rows.map((r) => (
+                      {sheetRows.map((r) => (
                         <TableRow key={r.studentId}>
                           <TableCell>
                             <Badge variant={r.classRank <= 3 ? "default" : "outline"} className={r.classRank <= 3 ? "gap-1 font-mono" : "font-mono"}>
@@ -284,6 +319,34 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                         </TableRow>
                       ))}
                     </TableBody>
+                    {summary && (
+                      <TableFooter className={TOTAL_FOOT_CLASS}>
+                        <TableRow>
+                          <TotalCell note colSpan={3}>班级平均 · 已录 {summary.scoredCount} 人</TotalCell>
+                          {summary.cols.map((c, i) => (
+                            <TotalCell key={sheet.subjects[i].id} className="text-right">{c.avg}</TotalCell>
+                          ))}
+                          <TotalCell className="text-right font-semibold">{summary.totalAvg}</TotalCell>
+                          <TotalCell className="text-right">{summary.avgOfAvg}</TotalCell>
+                        </TableRow>
+                        <TableRow>
+                          <TotalCell note colSpan={3}>及格（≥ 90 分）</TotalCell>
+                          {summary.cols.map((c, i) => (
+                            <TotalCell key={sheet.subjects[i].id} note className="text-right">{c.pass}</TotalCell>
+                          ))}
+                          <TotalCell note className="text-right">—</TotalCell>
+                          <TotalCell note className="text-right">—</TotalCell>
+                        </TableRow>
+                        <TableRow>
+                          <TotalCell note colSpan={3}>最高 · 最低</TotalCell>
+                          {summary.cols.map((c, i) => (
+                            <TotalCell key={sheet.subjects[i].id} className="text-right">{c.range}</TotalCell>
+                          ))}
+                          <TotalCell note className="text-right">—</TotalCell>
+                          <TotalCell note className="text-right">—</TotalCell>
+                        </TableRow>
+                      </TableFooter>
+                    )}
                   </Table>
                 </div>
               </>
@@ -291,7 +354,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
           </Panel>
         </TabsContent>
         <TabsContent value="entry" className="mt-4">
-          <Card className="border shadow-soft">
+          <Card className="gap-0 border py-0 shadow-soft">
             <CardContent className="flex flex-col gap-2.5 p-3 md:flex-row md:flex-wrap md:items-center md:p-4">
               <span className="text-sm text-muted-foreground">录入科目</span>
               <FilterSelect value={subjectId} onChange={setSubjectId} options={subjectOptions} ariaLabel="选择录入科目" className="md:w-40" />
@@ -535,7 +598,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
         {error ? (
           <EmptyState icon={ClipboardList} title="读取失败" description={error} />
         ) : !data ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">加载中…</p>
+          <ChartSkeleton className="h-72" />
         ) : !data.exams.length ? (
           <EmptyState icon={ClipboardList} title="该科目还没有成绩" description="在「成绩录入」里为这个科目填入至少一次考试的成绩后再来看走势。" />
         ) : (

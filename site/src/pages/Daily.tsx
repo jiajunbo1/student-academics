@@ -17,7 +17,8 @@ import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
   CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
-  RowCard, StatPills, TableSkeleton, Toolbar, TONE_CLASS, dailyStatusTone, useMarkColors, type SelectOption,
+  RowCard, SortHead, StatBar, StatPills, TableSkeleton, Toolbar, TotalCell, TotalRow, TONE_CLASS,
+  dailyStatusTone, useMarkColors, useTableSort, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, DailyGrid, DailyGridGroup, DailyKind, DailyListRow, DailySheet, RefData, Subject } from "../types";
 
@@ -119,12 +120,22 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
   const classNames = useMemo(() => (lists ?? []).map((l) => l.className), [lists]);
   const colorOf = useMarkColors(classNames);
   const settledOf = (l: DailyListRow) => SETTLED[kind].reduce((n, s) => n + (l.counts[s] ?? 0), 0);
+  // 表头点击排序：未点时就是后端下发的原序（最近布置在前），窄屏卡片跟表格用同一份顺序
+  const { sorted: shownLists, sort, toggle } = useTableSort(lists ?? [], {
+    title: (l) => l.title,
+    className: (l) => l.className,
+    subject: (l) => l.subjectName,
+    assign: (l) => l.assignDate,
+    progress: (l) => settledOf(l) / (l.total || 1),
+  });
   const stat = useMemo(() => {
     const ls = lists ?? [];
     return {
       open: ls.length,
       pending: ls.reduce((n, l) => n + Math.max(l.total - settledOf(l), 0), 0),
       done: ls.reduce((n, l) => n + l.passCount, 0),
+      settled: ls.reduce((n, l) => n + settledOf(l), 0),
+      assigned: ls.reduce((n, l) => n + l.total, 0),
     };
   }, [lists, kind]);
 
@@ -162,7 +173,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
           <>
             {/* 窄屏：一份清单一张卡，进度和状态摊开，不用左右滑 */}
             <CardList className="md:hidden">
-              {lists.map((l) => (
+              {shownLists.map((l) => (
                 <ListCard key={l.id} l={l} colorOf={colorOf} settled={settledOf(l)}
                   onOpen={() => setSheetId(l.id)} onEdit={() => setEditing(l)} onDelete={() => setDeleting(l)} />
               ))}
@@ -171,16 +182,16 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{meta.titleField}</TableHead>
-                    <TableHead>班级</TableHead>
-                    <TableHead>科目</TableHead>
-                    <TableHead>布置 / 截止</TableHead>
-                    <TableHead className="w-44">登记进度</TableHead>
-                    <TableHead className="sticky right-0 z-10 bg-card w-28 text-right">操作</TableHead>
+                    <SortHead label={meta.titleField} col="title" sort={sort} onSort={toggle} />
+                    <SortHead label="班级" col="className" sort={sort} onSort={toggle} />
+                    <SortHead label="科目" col="subject" sort={sort} onSort={toggle} />
+                    <SortHead label="布置 / 截止" col="assign" sort={sort} onSort={toggle} title="点击按布置日期排序（升 → 降 → 还原）" />
+                    <SortHead label="登记进度" col="progress" sort={sort} onSort={toggle} className="w-44" title="点击按完成比例排序（升 → 降 → 还原）" />
+                    <TableHead className="sticky right-0 z-10 bg-card w-28 text-right freeze-end">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lists.map((l) => (
+                  {shownLists.map((l) => (
                     <TableRow key={l.id} className="cursor-pointer" onClick={() => setSheetId(l.id)}>
                       <TableCell>
                         <span className="flex items-center gap-2">
@@ -201,7 +212,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
                         {l.dueDate ? <span className="block text-warning">截止 {l.dueDate}</span> : null}
                       </TableCell>
                       <TableCell>
-                        <ProgressBar done={settledOf(l)} total={l.total} />
+                        <StatBar value={settledOf(l)} max={l.total} />
                         <div className="mt-1 flex flex-wrap gap-1">
                           {Object.entries(l.counts).map(([status, n]) => (
                             <Pill key={status} tone={dailyStatusTone(status)}>{status} {n}</Pill>
@@ -209,7 +220,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
                           {!Object.keys(l.counts).length ? <span className="text-xs text-muted-foreground">尚未登记</span> : null}
                         </div>
                       </TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-card text-right whitespace-nowrap">
+                      <TableCell className="sticky right-0 z-10 bg-card freeze-end text-right whitespace-nowrap">
                         <Button size="xs" variant="ghost" title="进入名单登记" aria-label={`${l.title}：进入名单登记`}
                           onClick={(e) => { e.stopPropagation(); setSheetId(l.id); }}>
                           <CheckCheck />
@@ -222,6 +233,12 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
                     </TableRow>
                   ))}
                 </TableBody>
+                <TotalRow>
+                  <TotalCell note colSpan={6}>
+                    共 {shownLists.length} 份{meta.listNoun} · 已登记 {stat.settled} / 应登记 {stat.assigned} 人次 ·
+                    待补 {stat.pending} 人次 · {meta.doneLabel} {stat.done} 人次
+                  </TotalCell>
+                </TotalRow>
               </Table>
             </div>
           </>
@@ -240,19 +257,6 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
         title={`删除${meta.listNoun}`} busy={busy} confirmLabel="确认删除"
         description={`「${deleting?.title ?? ""}」（${deleting?.className ?? ""}）及其全部登记记录会被删除，且无法恢复。`}
         onConfirm={() => void remove()} />
-    </div>
-  );
-}
-
-function ProgressBar({ done, total, wide }: { done: number; total: number; wide?: boolean }) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="flex items-center gap-2">
-      <span className={cn("h-1.5 overflow-hidden rounded-full bg-muted", wide ? "min-w-0 flex-1" : "w-24 shrink-0")}>
-        <span className={cn("block h-full rounded-full transition-all", pct >= 100 ? "bg-success" : "brand-band")}
-          style={{ width: `${pct}%` }} />
-      </span>
-      <span className="text-xs tabular-nums text-muted-foreground">{done} / {total}</span>
     </div>
   );
 }
@@ -289,7 +293,7 @@ function ListCard({ l, colorOf, settled, onOpen, onEdit, onDelete }: {
         </>
       }
     >
-      <ProgressBar done={settled} total={l.total} wide />
+      <StatBar value={settled} max={l.total} wide />
       <div className="mt-2 flex flex-wrap gap-1.5">
         {Object.entries(l.counts).map(([status, n]) => (
           <Pill key={status} tone={dailyStatusTone(status)}>{status} {n}</Pill>
@@ -450,7 +454,7 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
                           <TableHead className="sticky left-0 z-10 w-36 max-md:w-28 bg-card freeze-start">学生</TableHead>
                           {g.lists.map((l) => {
                             const done = g.rows.filter((r) => settled.has(r.cells[l.id] ?? "")).length;
-                            const pct = g.rows.length ? Math.round((done / g.rows.length) * 100) : 0;
+                            const allSettled = g.rows.length > 0 && done === g.rows.length;
                             return (
                               <TableHead key={l.id} className="min-w-32 whitespace-normal align-top">
                                 <span className="block max-w-36 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>
@@ -461,13 +465,9 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
                                 ) : null}
                                 <span className="mt-1 flex items-center gap-1.5 text-[11px] font-normal">
                                   <span className="shrink-0 tabular-nums text-muted-foreground">{l.assignDate.slice(5)}</span>
-                                  <span className="h-1 min-w-6 flex-1 overflow-hidden rounded-full bg-muted">
-                                    <span className={cn("block h-full rounded-full transition-all",
-                                      pct >= 100 ? "bg-success" : "brand-band")}
-                                      style={{ width: `${pct}%` }} />
-                                  </span>
+                                  <StatBar value={done} max={g.rows.length} thin wide hideCount className="min-w-6" />
                                   <span className={cn("shrink-0 tabular-nums",
-                                    pct >= 100 ? "text-success" : !done ? "text-muted-foreground" : "text-foreground")}>
+                                    allSettled ? "text-success" : !done ? "text-muted-foreground" : "text-foreground")}>
                                     {done}/{g.rows.length}
                                   </span>
                                 </span>
@@ -478,10 +478,10 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {g.rows.map((r, i) => {
+                        {g.rows.map((r) => {
                           const todo = g.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
                           return (
-                            <TableRow key={r.studentId} className={i % 2 ? "bg-muted/25" : ""}>
+                            <TableRow key={r.studentId}>
                               <TableCell className="sticky left-0 z-10 bg-card freeze-start whitespace-nowrap">
                                 <span className="flex items-center gap-2">
                                   <ClassMark name={r.name} color={colorOf(g.className)} />
@@ -907,11 +907,11 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
               })}
             </div>
 
-            <div className="hidden overflow-y-auto rounded-lg border md:block md:max-h-[52vh]">
+            <div className="scroll-body hidden rounded-lg border [--table-max:52vh] md:block">
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
+                    <TableHead className="sticky left-0 z-10 bg-card freeze-start">学生</TableHead>
                     <TableHead className="min-w-56">状态</TableHead>
                     {data.hasAttempt ? <TableHead className="w-16 text-right">次数</TableHead> : null}
                     <TableHead>备注</TableHead>
@@ -924,8 +924,8 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
                     const changed = dirty.some((d) => d.studentId === r.studentId);
                     const off = r.status !== "在读";
                     return (
-                      <TableRow key={r.studentId} className={cn(changed && "bg-primary/5")}>
-                        <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
+                      <TableRow key={r.studentId} className={cn(changed && "row-changed")}>
+                        <TableCell className="sticky left-0 z-10 bg-card freeze-start whitespace-nowrap">
                           <span className="flex items-center gap-2">
                             <ClassMark name={r.name} color={colorOf(data.list.className)} />
                             <span>

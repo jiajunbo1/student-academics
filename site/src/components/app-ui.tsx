@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { CalendarIcon, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarIcon, MonitorSmartphone, Moon, Sun, TriangleAlert } from "lucide-react";
 import { zhCN } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableCell, TableFooter, TableHead, TableRow } from "@/components/ui/table";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -328,6 +329,7 @@ export function StatCard({
   value,
   hint,
   tone = "primary",
+  size = "lg",
   onClick,
   className,
 }: {
@@ -336,10 +338,13 @@ export function StatCard({
   value: ReactNode;
   hint?: ReactNode;
   tone?: Tone;
+  /** lg=看板 KPI 卡；md=页头下方那排紧凑统计，同一套版式只换字号 */
+  size?: "md" | "lg";
   onClick?: () => void;
   className?: string;
 }) {
   const Wrapper = onClick ? "button" : "div";
+  const md = size === "md";
   return (
     <Wrapper
       type={onClick ? "button" : undefined}
@@ -350,19 +355,84 @@ export function StatCard({
         className,
       )}
     >
-      <Card className="h-full border shadow-soft transition-colors hover:border-brand/45">
-        <CardContent className="flex items-start gap-3 p-4">
-          <span className={cn("grid size-9 shrink-0 place-items-center rounded-[calc(var(--radius)-2px)]", TONES[tone])}>
-            <Icon className="size-4.5" />
+      <Card className="h-full gap-0 border py-0 shadow-soft transition-colors hover:border-brand/45">
+        <CardContent className={cn("flex items-start gap-3", md ? "p-3 md:p-4" : "p-4")}>
+          <span className={cn(
+            "grid shrink-0 place-items-center rounded-[calc(var(--radius)-2px)]",
+            TONES[tone],
+            md ? "size-8" : "size-9",
+          )}>
+            <Icon className={md ? "size-4" : "size-4.5"} />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-            <p className="mt-0.5 text-2xl font-semibold leading-tight tracking-tight">{value}</p>
+            <p className={cn("truncate font-medium text-muted-foreground", md ? "text-[11px] md:text-xs" : "text-xs")}>{label}</p>
+            <p className={cn("mt-0.5 font-semibold leading-tight tracking-tight", md ? "text-lg md:text-xl" : "text-2xl")}>{value}</p>
             {hint ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p> : null}
           </div>
         </CardContent>
       </Card>
     </Wrapper>
+  );
+}
+
+/**
+ * 全站统一的进度条：清单完成度、登记总览表头、看板关键指标都读这一份。
+ * 三种排布 —— 默认「条 + n / N」；wide=条撑满剩余宽度；传 label 则换成「上：标题左 / 数值右，下：通长条」。
+ * 口径：满档转绿，未满用品牌渐变；分母为 0 时画空条，不显示 100%。
+ */
+export function StatBar({
+  value,
+  max,
+  label,
+  text,
+  thin,
+  wide,
+  hideCount,
+  className,
+}: {
+  value: number;
+  max: number;
+  label?: ReactNode;
+  /** 数值文案，默认「value / max」；stacked 模式默认百分比 */
+  text?: ReactNode;
+  thin?: boolean;
+  wide?: boolean;
+  hideCount?: boolean;
+  className?: string;
+}) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  const bar = (
+    <span className={cn(
+      "block overflow-hidden rounded-full bg-muted",
+      label ? "h-2 w-full" : thin ? "h-1" : "h-1.5",
+      !label && (wide ? "min-w-0 flex-1" : "w-24 shrink-0"),
+      className,
+    )}>
+      <span className={cn("block h-full rounded-full transition-all",
+        pct >= 100 && pct > 0 ? "bg-success" : "brand-band")}
+        style={{ width: `${pct}%` }} />
+    </span>
+  );
+
+  if (label) {
+    return (
+      <div>
+        <div className="flex items-baseline justify-between gap-2 text-sm">
+          <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+          <span className="shrink-0 font-semibold tabular-nums">{text ?? `${pct}%`}</span>
+        </div>
+        <div className="mt-2">{bar}</div>
+      </div>
+    );
+  }
+
+  if (hideCount) return bar;
+
+  return (
+    <span className="flex items-center gap-2">
+      {bar}
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{text ?? `${value} / ${max}`}</span>
+    </span>
   );
 }
 
@@ -469,6 +539,128 @@ export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: nu
   );
 }
 
+/** KPI 卡骨架：与 StatCard 同尺寸，加载时不塌陷、不跳版 */
+export function CardSkeleton({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex h-24 items-start gap-3 rounded-xl border bg-card p-4 shadow-soft", className)}
+      aria-busy="true" aria-label="加载中">
+      <Skeleton className="size-9 shrink-0 rounded-[calc(var(--radius)-2px)]" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-6 w-12" />
+      </div>
+    </div>
+  );
+}
+
+/** 图表骨架：按图表实际高度占位，代替「加载中…」纯文字 */
+export function ChartSkeleton({ className = "h-56" }: { className?: string }) {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="加载中">
+      <Skeleton className="h-4 w-28" />
+      <Skeleton className={cn("w-full rounded-xl", className)} />
+    </div>
+  );
+}
+
+/** ── 数据表格：排序与合计行的统一口径 ── */
+
+export type SortDir = "asc" | "desc";
+export type SortState = { key: string; dir: SortDir } | null;
+type SortValue = string | number | null | undefined;
+
+const isBlankSort = (v: SortValue) => v === null || v === undefined || v === "";
+
+/**
+ * 表头点击排序：三态循环（升 → 降 → 回到后端下发的原序），空值在两个方向都垫底。
+ * 比较函数按列名放在 ref 里，所以调用方每次渲染传新对象也不会触发重排（重排只跟 source/sort 走）。
+ */
+export function useTableSort<T>(source: T[], valueOf: Record<string, (row: T) => SortValue>) {
+  const pickRef = useRef(valueOf);
+  pickRef.current = valueOf;
+  const [sort, setSort] = useState<SortState>(null);
+
+  const toggle = useCallback((key: string) => {
+    setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
+  }, []);
+
+  const sorted = useMemo(() => {
+    if (!sort) return source;
+    const pick = pickRef.current[sort.key];
+    if (!pick) return source;
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...source].sort((a, b) => {
+      const va = pick(a);
+      const vb = pick(b);
+      if (isBlankSort(va) || isBlankSort(vb)) return isBlankSort(va) && isBlankSort(vb) ? 0 : isBlankSort(va) ? 1 : -1;
+      if (typeof va === "number" && typeof vb === "number") return sign * (va - vb);
+      return sign * String(va).localeCompare(String(vb), "zh-Hans-CN", { numeric: true });
+    });
+  }, [source, sort]);
+
+  return { sorted, sort, toggle };
+}
+
+/** 可排序表头：未排序时给一颗淡的双箭头，划过加深，让「这一列能点」看得出来 */
+export function SortHead({
+  label,
+  col,
+  sort,
+  onSort,
+  className,
+  title,
+}: {
+  label: ReactNode;
+  col: string;
+  sort: SortState;
+  onSort: (col: string) => void;
+  className?: string;
+  title?: string;
+}) {
+  const active = sort?.key === col;
+  const Icon = active ? (sort!.dir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  return (
+    // aria-sort 归 columnheader（th）所有，读屏才会念出「已按此列升序」；写在 button 上是无效的
+    <TableHead className={cn("whitespace-nowrap", className)}
+      aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        title={title ?? "点击排序（升 → 降 → 还原）"}
+        className="group inline-flex items-center gap-1 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
+        <span className={cn(active && "text-foreground")}>{label}</span>
+        <Icon className={cn("size-3 shrink-0 transition-opacity",
+          active ? "text-primary opacity-100" : "opacity-40 group-hover:opacity-75")} />
+      </button>
+    </TableHead>
+  );
+}
+
+/** 合计区底色：单行合计直接用 TotalRow，多行汇总（成绩表三档口径）自己套 TableFooter 时读这一个值 */
+export const TOTAL_FOOT_CLASS = "bg-muted/30";
+
+/** 合计行：tfoot 在 tbody 之外，因此不参与斑马纹，天然与数据行分层 */
+
+export function TotalRow({ children }: { children: ReactNode }) {
+  return (
+    <TableFooter className={TOTAL_FOOT_CLASS}>
+      <TableRow>{children}</TableRow>
+    </TableFooter>
+  );
+}
+
+/** 合计行的一格：note=口径说明（灰、小），默认是数字（等宽） */
+export function TotalCell({
+  children, note, className, ...rest
+}: Omit<ComponentProps<typeof TableCell>, "children"> & { children?: ReactNode; note?: boolean }) {
+  return (
+    <TableCell className={cn(note ? "text-xs font-medium text-muted-foreground" : "tabular-nums", className)} {...rest}>
+      {children}
+    </TableCell>
+  );
+}
+
 export function EmptyState({
   icon: Icon,
   title,
@@ -491,6 +683,36 @@ export function EmptyState({
       </EmptyHeader>
       {action ? <EmptyContent>{action}</EmptyContent> : null}
     </Empty>
+  );
+}
+
+/**
+ * 页内错误条：失败只在原地说明，不吞掉已渲染的内容。
+ * 整页读不出来时仍用 EmptyState + 重试按钮，别用它替代表格本体。
+ */
+export function ErrorBanner({
+  text,
+  onRetry,
+  className,
+}: {
+  text: ReactNode;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn(
+      "mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive",
+      className,
+    )}>
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0 flex-1">{text}</span>
+      {onRetry ? (
+        <Button size="xs" variant="ghost" className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={onRetry}>
+          重试
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

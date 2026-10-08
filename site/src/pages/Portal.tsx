@@ -8,8 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiGet, errorMessage, fmtScore } from "../api";
 import type { DailyKind, PortalDailyItem, PortalData, PortalRecord } from "../types";
 import {
-  CardList, EmptyState, PageHeader, Panel, Pill, RowCard, ScoreText, StatCard, STUDENT_STATUS_TONE,
-  TableSkeleton, dailyStatusTone, trendDomain, useThemeColors,
+  CardList, CardSkeleton, EmptyState, PageHeader, Panel, Pill, RowCard, ScoreText, StatCard, STUDENT_STATUS_TONE,
+  TableSkeleton, TotalCell, TotalRow, dailyStatusTone, trendDomain, useThemeColors,
 } from "../components/app-ui";
 import { SETTLED } from "./Daily";
 
@@ -52,7 +52,7 @@ export default function Portal() {
       <div>
         <PageHeader title="我的学业" description="正在读取本人成绩与记录…" />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 rounded-xl border bg-card" />)}
+          {Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
         <Panel className="mt-4"><TableSkeleton rows={5} cols={3} /></Panel>
       </div>
@@ -158,19 +158,19 @@ export default function Portal() {
                     </TableRow>
                   );
                 })}
-                <TableRow>
-                  <TableCell><span className="font-medium">合计 / 平均</span></TableCell>
-                  <TableCell className="text-right">
-                    <span className="font-medium">{fmtScore(latest.total)}</span>
-                    <span className="ml-1 text-xs text-muted-foreground">（{latest.count} 科）</span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Pill tone={latest.total / 10 >= latest.classAvg ? "success" : "warning"}>
-                      总分 {fmtScore(latest.total)} · 班级 {latest.classAvg}
-                    </Pill>
-                  </TableCell>
-                </TableRow>
               </TableBody>
+              <TotalRow>
+                <TotalCell>合计 / 平均</TotalCell>
+                <TotalCell className="text-right">
+                  <span className="font-medium">{fmtScore(latest.total)}</span>
+                  <span className="ml-1 text-xs text-muted-foreground">（{latest.count} 科）</span>
+                </TotalCell>
+                <TotalCell className="text-right">
+                  <Pill tone={latest.total / 10 >= latest.classAvg ? "success" : "warning"}>
+                    总分 {fmtScore(latest.total)} · 班级 {latest.classAvg}
+                  </Pill>
+                </TotalCell>
+              </TotalRow>
             </Table>
           </div>
         </Panel>
@@ -231,7 +231,7 @@ function DailyPanel({ kind, icon: Icon, title, description, items, emptyText }: 
               />
             ))}
           </CardList>
-          <div className="hidden max-h-80 overflow-y-auto md:block">
+          <div className="scroll-body hidden md:block">
             <Table className="data-table">
               <TableHeader>
                 <TableRow>

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, errorMessage, getAppToken, setAppToken, setUnauthorizedHandler, type ApiError } from "./api";
 import type { Me } from "./types";
-import { ThemeToggle } from "./components/app-ui";
+import { CardSkeleton, ThemeToggle } from "./components/app-ui";
 import { ForcePasswordScreen, LoginScreen, ChangePasswordForm } from "./components/auth-screens";
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
@@ -80,7 +80,7 @@ export default function App() {
         <div className="mx-auto max-w-6xl space-y-4">
           <Skeleton className="h-9 w-48" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+            {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
           </div>
           <Skeleton className="h-72 rounded-xl" />
         </div>

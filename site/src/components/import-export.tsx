@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { errorText, errorMessage } from "../api";
-import { EmptyState, Pill, type Tone } from "./app-ui";
+import { EmptyState, ErrorBanner, Pill, type Tone } from "./app-ui";
 
 export interface ImportRowError { field: string; code: string }
 export interface ImportItem { line: number; label: string; ok: boolean; action: string; errors: ImportRowError[] }
@@ -173,7 +173,7 @@ export function ImportDialog({ open, onClose, title, description, guidance, labe
               onClick={() => void accept(paste.replace(/\t/g, ","), "粘贴内容")}><Upload /> 解析粘贴内容</Button>
           </div>
 
-          {note && <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{note}</p>}
+          {note && <ErrorBanner text={note} className="mb-0" />}
 
           {result && (
             <div className="space-y-2">
@@ -188,7 +188,7 @@ export function ImportDialog({ open, onClose, title, description, guidance, labe
               {!shown.length ? (
                 <EmptyState icon={Upload} title="全部行都会被跳过" description="这些行没有需要写入的变化（关键列留空或数据与现状一致）；确认无误后可直接关闭。" />
               ) : (
-                <div className="max-h-72 overflow-y-auto rounded-lg border">
+                <div className="scroll-body rounded-lg border [--table-max:18rem]">
                   <Table className="data-table">
                     <TableHeader>
                       <TableRow><TableHead className="w-14">行号</TableHead><TableHead>内容</TableHead><TableHead className="w-20">结果</TableHead><TableHead>说明</TableHead></TableRow>

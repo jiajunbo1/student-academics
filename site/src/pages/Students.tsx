@@ -15,7 +15,7 @@ import {
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
-  CardList, ClassDot, ClassMark, ConfirmDialog, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, STUDENT_STATUS_TONE, TableSkeleton, Toolbar,
+  CardList, ClassDot, ClassMark, ConfirmDialog, EmptyState, ErrorBanner, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, SortHead, StatCard, STUDENT_STATUS_TONE, TableSkeleton, Toolbar, TotalCell, TotalRow, useTableSort,
   useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
@@ -114,6 +114,14 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
     return { total: rows.length, active: by("在读"), off: by("休学") + by("转班"), grad: by("毕业") };
   }, [rows]);
 
+  // 表头点击排序：未排序时 shown 就是 rows 本身（后端原序），卡片列表与表格共用同一份顺序
+  const { sorted: shown, sort, toggle } = useTableSort(rows, {
+    studentNo: (r) => r.student_no,
+    name: (r) => r.name,
+    className: (r) => className.get(r.class_id) ?? "",
+    status: (r) => r.status,
+  });
+
   const openEdit = (row?: StudentRow) => {
     setEditing(row ? {
       id: row.id, studentNo: row.student_no, name: row.name, gender: row.gender,
@@ -166,13 +174,13 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const classOptions = useMemo<SelectOption[]>(() => classes.map((c) => ({ value: c.id, label: c.name })), [classes]);
   const colorOf = useMarkColors(classes.map((c) => c.name));
 
-  /** 导出的就是列表当前看到的这些行（后端已按任教范围过滤），表头与导入模板一致 */
+  /** 导出的就是列表当前看到的这些行（后端已按任教范围过滤、排序也跟屏幕走），表头与导入模板一致 */
   const exportRoster = () => {
-    if (!rows.length) { toast.error("当前筛选下没有学生，先调整筛选或导入名单"); return; }
+    if (!shown.length) { toast.error("当前筛选下没有学生，先调整筛选或导入名单"); return; }
     const scope = classId ? (className.get(classId) ?? "班级") : (status || "全校");
     downloadCsv(`学生名单_${scope}.csv`, [
       ROSTER_COLS.map((c) => c.head),
-      ...rows.map((r) => ROSTER_COLS.map((c) => ROSTER_VALUE[c.key](r))),
+      ...shown.map((r) => ROSTER_COLS.map((c) => ROSTER_VALUE[c.key](r))),
     ]);
   };
 
@@ -189,9 +197,9 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       </PageHeader>
 
       <div className="mb-4 grid grid-cols-3 gap-3">
-        <MiniStat icon={Users} label="筛选结果" value={stats.total} tone="bg-primary/10 text-primary" />
-        <MiniStat icon={CalendarClock} label="休学 / 转班" value={stats.off} tone="bg-warning/14 text-warning" />
-        <MiniStat icon={UserX} label="已毕业" value={stats.grad} tone="bg-info/12 text-info" />
+        <StatCard size="md" icon={Users} label="筛选结果" value={stats.total} />
+        <StatCard size="md" icon={CalendarClock} label="休学 / 转班" value={stats.off} tone="warning" />
+        <StatCard size="md" icon={UserX} label="已毕业" value={stats.grad} tone="info" />
       </div>
 
       <Toolbar>
@@ -206,12 +214,12 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         )}
       </Toolbar>
 
-      {error && <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+      {error && <ErrorBanner text={error} />}
 
       <Panel title="学生名单" description={`${stats.total} 条记录`} contentClassName="p-3 md:p-0">
         {loading ? (
           <TableSkeleton rows={6} cols={5} />
-        ) : rows.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState
             icon={GraduationCap}
             title="没有符合条件的学生"
@@ -223,7 +231,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         ) : (
           <>
             <CardList className="md:hidden">
-              {rows.map((r) => {
+              {shown.map((r) => {
                 const markName = className.get(r.class_id) ?? "";
                 return (
                   <RowCard
@@ -262,14 +270,17 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead>性别</TableHead>
-                    <TableHead>班级</TableHead>
+                    <SortHead label="学号" col="studentNo" sort={sort} onSort={toggle} />
+                    <SortHead label="姓名" col="name" sort={sort} onSort={toggle} />
+                    <TableHead>性别</TableHead>
+                    <SortHead label="班级" col="className" sort={sort} onSort={toggle} />
                     <TableHead>家长 / 联系电话</TableHead>
-                    <TableHead>状态</TableHead><TableHead className="text-right">操作</TableHead>
+                    <SortHead label="状态" col="status" sort={sort} onSort={toggle} />
+                    <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => {
+                  {shown.map((r) => {
                     const markName = className.get(r.class_id) ?? "";
                     return (
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => void openDetail(r)}>
@@ -304,6 +315,9 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                     );
                   })}
                 </TableBody>
+                <TotalRow>
+                  <TotalCell note colSpan={7}>共 {shown.length} 人 · 在读 {stats.active} · 休学/转班 {stats.off} · 毕业 {stats.grad}</TotalCell>
+                </TotalRow>
               </Table>
             </div>
           </>
@@ -422,23 +436,11 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
 
 /** 班级色标头像见 app-ui 的 ClassMark */
 
-const MiniStat = ({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: number; tone: string }) => (
-  <Card className="border shadow-soft">
-    <CardContent className="flex items-center gap-2.5 p-3 md:p-4">
-      <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${tone}`}><Icon className="size-4" /></span>
-      <div className="min-w-0">
-        <p className="truncate text-[11px] text-muted-foreground md:text-xs">{label}</p>
-        <p className="text-lg font-semibold leading-tight md:text-xl">{value}</p>
-      </div>
-    </CardContent>
-  </Card>
-);
-
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div><Label className="mb-1 block text-xs text-muted-foreground">{label}</Label>{children}</div>
 );
 const DetailSection = ({ title, count, children }: { title: string; count: number; children: React.ReactNode }) => (
-  <Card className="border shadow-soft">
+  <Card className="gap-0 border py-0 shadow-soft">
     <CardHeader className="py-3">
       <CardTitle className="flex items-center gap-2 text-sm">
         {title}<Badge variant="secondary" className="font-normal">{count}</Badge>
