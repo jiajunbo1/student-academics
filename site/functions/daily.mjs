@@ -122,32 +122,59 @@ async function actDailySheet(kindRaw, supabase, request, params) {
   });
 }
 
-// ---------- GET：周总览（行=学生，列=最近若干清单） ----------
+// ---------- GET：登记总览（行=学生，列=最近若干清单） ----------
+// 传 classId 只看那一个班；不传则按请求者的任教班级分班返回，每班各取最近 days 份，
+// 免得一个班的密集布置把另一个班挤掉。没有清单的班不出现在结果里。
 async function actDailyGrid(kindRaw, supabase, request, params) {
   const p = await principal(supabase, request); requireStaff(p);
   const kind = kindOf(kindRaw);
-  const classId = ID(params.get('classId'));
-  if (!teachesClass(p.scope, classId)) return fail('forbidden', 403);
+  const classId = params.get('classId') ? ID(params.get('classId')) : null;
+  if (classId && !teachesClass(p.scope, classId)) return fail('forbidden', 403);
   const days = Math.min(Math.max(Number(params.get('days') || 7) || 7, 1), 14);
-  const [tasks, students, classes] = await Promise.all([
-    db(supabase.from(kind.listTable).select('*').eq('class_id', classId)),
-    db(supabase.from('students').select('id,name,student_no,class_id,status').eq('class_id', classId).order('student_no')),
-    db(supabase.from('classes').select('id,name')),
+  const [tasks, classes] = await Promise.all([
+    db(supabase.from(kind.listTable).select('*')),
+    db(supabase.from('classes').select('id,name').order('grade').order('name')),
   ]);
-  const mine = tasks.filter((t) => teachesPair(p.scope, t.subject_id, classId))
-    .sort((a, b) => String(b.assign_date).localeCompare(String(a.assign_date)))
-    .slice(0, days);
-  const ids = mine.map((t) => t.id);
-  const rows = students.filter((s) => s.status === '在读');
-  const checks = ids.length ? await db(supabase.from(kind.recordTable).select('*').in(kind.listKey, ids)) : [];
+  const byClass = new Map();
+  for (const t of tasks) {
+    if (!teachesPair(p.scope, t.subject_id, t.class_id)) continue;
+    if (classId && t.class_id !== classId) continue;
+    const arr = byClass.get(t.class_id) || [];
+    arr.push(t); byClass.set(t.class_id, arr);
+  }
+  // 选中某个班时即使它一份清单都没有也要回一组，前端才有「该班级还没有清单」的空态
+  const groups = classes.filter((c) => byClass.has(c.id) || c.id === classId).map((c) => ({
+    class: c,
+    lists: (byClass.get(c.id) || [])
+      .sort((a, b) => String(b.assign_date).localeCompare(String(a.assign_date)))
+      .slice(0, days),
+  }));
+  const classIds = groups.map((g) => g.class.id);
+  const [students, checks] = await Promise.all([
+    classIds.length
+      ? db(supabase.from('students').select('id,name,student_no,class_id,status').in('class_id', classIds).order('student_no'))
+      : Promise.resolve([]),
+    (() => {
+      const ids = groups.flatMap((g) => g.lists.map((t) => t.id));
+      return ids.length ? db(supabase.from(kind.recordTable).select('*').in(kind.listKey, ids)) : Promise.resolve([]);
+    })(),
+  ]);
   const cell = new Map(checks.map((r) => [`${r[kind.listKey]}|${r.student_id}`, r.status]));
+  const roster = new Map();
+  for (const s of students) {
+    if (s.status !== '在读') continue;
+    const arr = roster.get(s.class_id) || [];
+    arr.push(s); roster.set(s.class_id, arr);
+  }
   return ok({
     kind: kindRaw,
-    className: (classes.find((c) => c.id === classId) || {}).name || '',
-    lists: mine.map((t) => ({ id: t.id, title: t.title, part: t.part || '', assignDate: t.assign_date })),
-    rows: rows.map((s) => ({
-      studentId: s.id, studentNo: s.student_no, name: s.name,
-      cells: Object.fromEntries(mine.map((t) => [t.id, cell.get(`${t.id}|${s.id}`) ?? null])),
+    groups: groups.map((g) => ({
+      classId: g.class.id, className: g.class.name,
+      lists: g.lists.map((t) => ({ id: t.id, title: t.title, part: t.part || '', assignDate: t.assign_date })),
+      rows: (roster.get(g.class.id) || []).map((s) => ({
+        studentId: s.id, studentNo: s.student_no, name: s.name,
+        cells: Object.fromEntries(g.lists.map((t) => [t.id, cell.get(`${t.id}|${s.id}`) ?? null])),
+      })),
     })),
     statuses: kind.statuses, pass: kind.pass,
   });

@@ -279,6 +279,25 @@ body {
   background: color-mix(in oklab, var(--brand) 6%, transparent);
 }
 
+/* 冻结列的边界：横向滑动时用一道渐隐阴影交代「后面还有内容被压住了」 */
+.freeze-start {
+  border-right: 1px solid var(--border);
+  box-shadow: 6px 0 10px -8px rgba(16, 24, 40, 0.4);
+}
+
+.freeze-end {
+  border-left: 1px solid var(--border);
+  box-shadow: -6px 0 10px -8px rgba(16, 24, 40, 0.4);
+}
+
+.dark .freeze-start {
+  box-shadow: 6px 0 10px -8px rgba(0, 0, 0, 0.8);
+}
+
+.dark .freeze-end {
+  box-shadow: -6px 0 10px -8px rgba(0, 0, 0, 0.8);
+}
+
 /* 数字与表头统一用等宽数字，避免成绩列跳动 */
 table td,
 table th {

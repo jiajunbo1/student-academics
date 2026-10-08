@@ -19,7 +19,7 @@ import {
   CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
   RowCard, StatPills, TableSkeleton, Toolbar, TONE_CLASS, dailyStatusTone, useMarkColors, type SelectOption,
 } from "../components/app-ui";
-import type { ClassRow, DailyGrid, DailyKind, DailyListRow, DailySheet, RefData, Subject } from "../types";
+import type { ClassRow, DailyGrid, DailyGridGroup, DailyKind, DailyListRow, DailySheet, RefData, Subject } from "../types";
 
 /** 两类登记共用同一套界面，只差文案与后端下发的字段开关 */
 const META: Record<DailyKind, {
@@ -128,16 +128,6 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
     };
   }, [lists, kind]);
 
-  // 「全部任教班级」时总览默认取第一份清单的班；清单增删后保持原来那个班，不要跳走
-  const lastGridClass = useRef("");
-  const gridClassId = useMemo(() => {
-    if (classId) { lastGridClass.current = classId; return classId; }
-    const ls = lists ?? [];
-    const kept = ls.some((l) => l.classId === lastGridClass.current) ? lastGridClass.current : (ls[0]?.classId ?? "");
-    lastGridClass.current = kept;
-    return kept;
-  }, [classId, lists]);
-
   const remove = async () => {
     if (!deleting) return;    setBusy(true);
     try {
@@ -238,7 +228,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
         )}
       </Panel>
 
-      <GridPanel kind={kind} classId={gridClassId} rev={gridRev} onChanged={() => void refresh()} />
+      <GridPanel kind={kind} classId={classId} rev={gridRev} onChanged={() => void refresh()} />
 
       <ListFormDialog kind={kind} open={creating || !!editing} initial={editing} subjects={subjects} classes={classes}
         onClose={() => { setCreating(false); setEditing(null); }} onSaved={() => void refresh()} />
@@ -310,7 +300,7 @@ function ListCard({ l, colorOf, settled, onOpen, onEdit, onDelete }: {
   );
 }
 
-/** 登记总览：行=学生，列=最近的若干份清单，格子=可直接打勾的勾选框 */
+/** 登记总览：一组=一个班，行=学生，列=本班最近的若干份清单，格子=可直接打勾的勾选框 */
 function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId: string; rev: number; onChanged: () => void }) {
   const meta = META[kind];
   const [days, setDays] = useState("7");
@@ -320,14 +310,14 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
   const scopeRef = useRef("");
 
   useEffect(() => {
-    if (!classId) { setData(null); setError(""); return; }
     let alive = true;
-    // 换班时清空重排，同一班级内的刷新保留旧格子，避免每次登记都闪一次骨架
+    // 换班级筛选时清空重排，同一筛选下的刷新保留旧格子，避免每次登记都闪一次骨架
     const scope = `${kind}|${classId}`;
     if (scope !== scopeRef.current) { scopeRef.current = scope; setData(null); }
     setError("");
     void (async () => {
       try {
+        // classId 为空 = 全部任教班级，后端按班分组各回一组
         const d = await apiGet<DailyGrid>(`${kind}.grid`, { classId, days });
         if (alive) setData(d);
       } catch (e) { if (alive) setError(errorMessage(e)); }
@@ -337,13 +327,21 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
 
   const pass = data?.pass ?? "";
   const settled = useMemo(() => new Set(SETTLED[kind]), [kind]);
+  const groups = useMemo(() => (data?.groups ?? []).filter((g) => g.lists.length), [data]);
+  // 节头与学生色标按班级取色，与清单表、看板同一套色板
+  const colorOf = useMarkColors(groups.map((g) => g.className));
 
   /** 打勾即写即存：请求只带状态，备注与应背日由后端沿用原值；失败回滚这一格 */
-  const write = async (listId: string, studentId: string, next: string) => {
+  const write = async (rowClassId: string, listId: string, studentId: string, next: string) => {
     const key = `${listId}|${studentId}`;
-    const prev = data?.rows.find((r) => r.studentId === studentId)?.cells[listId] ?? null;
+    const group = data?.groups.find((g) => g.classId === rowClassId);
+    const prev = group?.rows.find((r) => r.studentId === studentId)?.cells[listId] ?? null;
     const patch = (v: string | null) => setData((d) => d && {
-      ...d, rows: d.rows.map((r) => r.studentId === studentId ? { ...r, cells: { ...r.cells, [listId]: v } } : r),
+      ...d,
+      groups: d.groups.map((g) => g.classId !== rowClassId ? g : {
+        ...g,
+        rows: g.rows.map((r) => r.studentId === studentId ? { ...r, cells: { ...r.cells, [listId]: v } } : r),
+      }),
     });
     setWriting((w) => ({ ...w, [key]: true }));
     patch(next || null);
@@ -359,28 +357,48 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
   };
 
   // 列名带上布置日期：同一篇目重复布置时导出结果不会撞成同名列
-  const headOf = (l: DailyGrid["lists"][number]) =>
+  const headOf = (l: DailyGridGroup["lists"][number]) =>
     `${l.title}${l.part ? ` ${l.part}` : ""} ${l.assignDate}`;
 
-  const exportGrid = () => {
-    if (!data?.lists.length) return;
-    downloadCsv(`${meta.nav}总览_${data.className}_${today()}.csv`, [
-      ["学号", "姓名", "待补", ...data.lists.map(headOf)],
-      ...data.rows.map((r) => {
-        const todo = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
-        return [r.studentNo, r.name, todo, ...data.lists.map((l) => r.cells[l.id] ?? "")];
-      }),
+  /** 多班导出把各班清单首尾相接成一张方阵，学生只在自己班的那几列有值，首列补上班级 */
+  const sendCsv = (gs: DailyGridGroup[], multi: boolean, name: string) => {
+    const cols = gs.flatMap((g) => g.lists.map((l) => ({ g, l })));
+    downloadCsv(name, [
+      [...(multi ? ["班级"] : []), "学号", "姓名", "待补", ...cols.map((c) => headOf(c.l))],
+      ...gs.flatMap((g) => g.rows.map((r) => {
+        const todo = g.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
+        return [
+          ...(multi ? [g.className] : []), r.studentNo, r.name, todo,
+          ...cols.map((c) => (c.g === g ? r.cells[c.l.id] ?? "" : "")),
+        ];
+      })),
     ]);
+  };
+
+  const exportGrid = () => sendCsv(groups, groups.length > 1,
+    `${meta.nav}总览_${groups.length > 1 ? `${groups.length}个班` : groups[0].className}_${today()}.csv`);
+
+  /** 一节里要有结论：全清几人、还欠几项，扫一眼就知道要不要往下翻 */
+  const statOf = (g: DailyGridGroup) => {
+    const pending = g.rows.reduce(
+      (n, r) => n + g.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length, 0);
+    return {
+      pending,
+      cleared: g.rows.filter((r) => g.lists.every((l) => settled.has(r.cells[l.id] ?? ""))).length,
+    };
   };
 
   return (
     <Panel title="登记总览"
       description={data
-        ? `${data.className} · 最近 ${data.lists.length} 份${meta.listNoun} · 点格子即记为${pass}`
-        : classId ? "正在读取…" : "先在上方选择班级"}
+        ? groups.length > 1
+          ? `${groups.length} 个班级 · 每班最近 ${days} 份${meta.listNoun} · 点格子即记为${pass}`
+          // 单班时班名已在节头出现，这里不再重复一遍
+          : `最近 ${groups[0]?.lists.length ?? 0} 份${meta.listNoun} · 点格子即记为${pass}`
+        : "正在读取…"}
       action={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={exportGrid} disabled={!data?.lists.length}>
+          <Button size="sm" variant="outline" onClick={exportGrid} disabled={!groups.length}>
             <Download /> 导出总览
           </Button>
           <FilterSelect size="sm" value={days} onChange={setDays} ariaLabel="显示份数"
@@ -391,67 +409,132 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
             ]} />
         </div>
       }
-      contentClassName="p-3 md:p-0">
-      {!classId ? (
-        <EmptyState icon={Table2} title="选择班级后查看总览" description="总览按班级展开，一格一次登记，容易看出反复欠账的学生。" />
-      ) : error ? (
+      contentClassName="p-3 md:p-4">
+      {error ? (
         <EmptyState icon={Inbox} title="读取失败" description={error} />
       ) : !data ? (
         <TableSkeleton rows={5} cols={6} />
-      ) : !data.lists.length ? (
-        <EmptyState icon={Table2} title={`该班级还没有${meta.listNoun}`} description={meta.emptyHint} />
+      ) : !groups.length ? (
+        <EmptyState icon={Table2}
+          title={classId ? `该班级还没有${meta.listNoun}` : `还没有${meta.listNoun}`}
+          description={meta.emptyHint} />
       ) : (
-        <div className="space-y-2.5">
-          {/* 窄屏整表横向滑动，学生列冻结在左侧 */}
-          <div className="scroll-x -mx-3 px-3 md:mx-0 md:px-0">
-            <Table className="data-table max-md:min-w-max">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="sticky left-0 z-10 bg-card">学生</TableHead>
-                  {data.lists.map((l) => {
-                    const done = data.rows.filter((r) => settled.has(r.cells[l.id] ?? "")).length;
-                    return (
-                      <TableHead key={l.id} className="min-w-28 whitespace-normal">
-                        <span className="block max-w-32 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>{l.title}</span>
-                        <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">
-                          {l.assignDate} · {done}/{data.rows.length}
-                        </span>
-                      </TableHead>
-                    );
-                  })}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.rows.map((r) => {
-                  const todo = data.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
-                  return (
-                    <TableRow key={r.studentId}>
-                      <TableCell className="sticky left-0 z-10 bg-card whitespace-nowrap">
-                        <span className="font-medium">{r.name}</span>
-                        <span className="ml-1.5 font-mono text-xs text-muted-foreground">{r.studentNo}</span>
-                        {todo ? <span className="ml-1.5 text-xs text-warning">待补 {todo}</span>
-                          : <Pill tone="success"><span className="ml-1">全部结清</span></Pill>}
-                      </TableCell>
-                      {data.lists.map((l) => (
-                        <TableCell key={l.id} className="py-1.5">
-                          <GridTick
-                            statuses={data.statuses} pass={pass}
-                            value={r.cells[l.id] ?? ""}
-                            busy={!!writing[`${l.id}|${r.studentId}`]}
-                            who={r.name}
-                            what={l.part ? `${l.title} · ${l.part}` : l.title}
-                            onSet={(s) => void write(l.id, r.studentId, s)}
-                          />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+        <div className="space-y-4">
+          {groups.map((g) => {
+            const st = statOf(g);
+            const allDone = !!g.rows.length && st.cleared === g.rows.length;
+            return (
+              <section key={g.classId} className="overflow-hidden rounded-xl border bg-card">
+                <header className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b bg-muted/30 px-3 py-2 md:px-4">
+                  <ClassDot color={colorOf(g.className)} className="size-2" />
+                  <h3 className="text-sm font-semibold">{g.className}</h3>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {g.lists.length} 份{meta.listNoun} · {g.rows.length} 人在读
+                  </span>
+                  <Pill tone={allDone ? "success" : "info"}>全清 {st.cleared}/{g.rows.length} 人</Pill>
+                  <Pill tone={st.pending ? "warning" : "success"}>待补 {st.pending} 项</Pill>
+                  <Button size="xs" variant="ghost" className="ml-auto text-muted-foreground"
+                    aria-label={`导出${g.className}总览`} onClick={() => sendCsv([g], false,
+                      `${meta.nav}总览_${g.className}_${today()}.csv`)}>
+                    <Download /> 本班
+                  </Button>
+                </header>
+                {!g.rows.length ? (
+                  <p className="px-3 py-3 text-sm text-muted-foreground md:px-4">该班级当前没有在读学生。</p>
+                ) : (
+                  /* 窄屏整表横向滑动，学生列冻结在左侧、待补列冻结在右侧 */
+                  <div className="scroll-x">
+                    <Table className="data-table max-md:min-w-max">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 z-10 w-36 max-md:w-28 bg-card freeze-start">学生</TableHead>
+                          {g.lists.map((l) => {
+                            const done = g.rows.filter((r) => settled.has(r.cells[l.id] ?? "")).length;
+                            const pct = g.rows.length ? Math.round((done / g.rows.length) * 100) : 0;
+                            return (
+                              <TableHead key={l.id} className="min-w-32 whitespace-normal align-top">
+                                <span className="block max-w-36 truncate" title={l.part ? `${l.title} · ${l.part}` : l.title}>
+                                  {l.title}
+                                </span>
+                                {l.part ? (
+                                  <span className="block max-w-36 truncate text-[11px] font-normal text-muted-foreground">{l.part}</span>
+                                ) : null}
+                                <span className="mt-1 flex items-center gap-1.5 text-[11px] font-normal">
+                                  <span className="shrink-0 tabular-nums text-muted-foreground">{l.assignDate.slice(5)}</span>
+                                  <span className="h-1 min-w-6 flex-1 overflow-hidden rounded-full bg-muted">
+                                    <span className={cn("block h-full rounded-full transition-all",
+                                      pct >= 100 ? "bg-success" : "brand-band")}
+                                      style={{ width: `${pct}%` }} />
+                                  </span>
+                                  <span className={cn("shrink-0 tabular-nums",
+                                    pct >= 100 ? "text-success" : !done ? "text-muted-foreground" : "text-foreground")}>
+                                    {done}/{g.rows.length}
+                                  </span>
+                                </span>
+                              </TableHead>
+                            );
+                          })}
+                          <TableHead className="sticky right-0 z-10 w-16 bg-card text-center freeze-end">待补</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {g.rows.map((r, i) => {
+                          const todo = g.lists.filter((l) => !settled.has(r.cells[l.id] ?? "")).length;
+                          return (
+                            <TableRow key={r.studentId} className={i % 2 ? "bg-muted/25" : ""}>
+                              <TableCell className="sticky left-0 z-10 bg-card freeze-start whitespace-nowrap">
+                                <span className="flex items-center gap-2">
+                                  <ClassMark name={r.name} color={colorOf(g.className)} />
+                                  <span className="min-w-0">
+                                    <span className="block font-medium leading-tight">{r.name}</span>
+                                    <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{r.studentNo}</span>
+                                  </span>
+                                </span>
+                              </TableCell>
+                              {g.lists.map((l) => (
+                                <TableCell key={l.id} className="py-1.5 text-center">
+                                  <GridTick
+                                    statuses={data.statuses} pass={pass}
+                                    value={r.cells[l.id] ?? ""}
+                                    busy={!!writing[`${l.id}|${r.studentId}`]}
+                                    who={r.name}
+                                    what={l.part ? `${l.title} · ${l.part}` : l.title}
+                                    onSet={(s) => void write(g.classId, l.id, r.studentId, s)}
+                                  />
+                                </TableCell>
+                              ))}
+                              <TableCell className="sticky right-0 z-10 bg-card text-center freeze-end">
+                                {todo
+                                  ? <span className="font-semibold tabular-nums text-warning">{todo}</span>
+                                  : <Pill tone="success">全清</Pill>}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </section>
+            );
+          })}
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">格子图例</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <i aria-hidden="true" className="size-3.5 rounded-full border border-dashed border-muted-foreground/45" />
+              未登记
+            </span>
+            {data.statuses.map((s) => (
+              <Pill key={s} tone={dailyStatusTone(s)}>
+                {s === pass ? <Check className="size-3" strokeWidth={3} /> : null}
+                {s}
+              </Pill>
+            ))}
           </div>
           <p className="text-xs text-muted-foreground">
             点格子＝{pass}，再点一次撤销；需要其他状态点格子右侧的小箭头，检查日期按今天记。
+            {groups.length > 1 ? `合并按班分节，每班各取最近 ${days} 份，导出时首列带班级。` : ""}
             {kind === "recitation"
               ? "状态变化时背诵次数自动 +1；备注与延背应背日、批量填充仍在清单的名单登记里改。"
               : "同一学生重复登记会覆盖上次结果；备注与批量填充仍在清单的名单登记里改。"}
@@ -476,7 +559,7 @@ function GridTick({ statuses, pass, value, busy, who, what, onSet }: {
       : value ? `${who}：当前${value}，点击标为${pass}`
         : `${who}：标为${pass}`;
   return (
-    <span className="flex items-center gap-0.5">
+    <span className="inline-flex items-center gap-0.5 align-middle">
       <button type="button" aria-label={mainLabel} title={mainLabel} disabled={busy}
         aria-pressed={isPass}
         onClick={() => onSet(isPass ? "" : pass)}

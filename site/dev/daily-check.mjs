@@ -145,13 +145,42 @@ const alien = (await call('students.list', { token: admin, qs: `&classId=${C2.id
 const badClass = await call('recitation.check', { token: T, body: { listId, entries: [{ studentId: alien.id, status: '过关' }] } });
 check('跨班学生登记被拒', badClass.status === 403 && badClass.json?.error === 'out_of_class', `${badClass.status} ${badClass.json?.error}`);
 
-// 6. 周总览
+// 6. 登记总览（一组 = 一个班）
 const grid = await call('recitation.grid', { token: T, qs: `&classId=${C1.id}&days=7` });
-check('总览含本次清单', (grid.json.lists || []).some((x) => x.id === listId), String(grid.json?.error || grid.json?.lists?.length));
-check('总览格子有状态', (grid.json.rows || []).some((r) => r.cells[listId] === '过关'), `${grid.json?.rows?.length} 行`);
+const g1 = (grid.json.groups || [])[0];
+check('单班总览只回一个班', (grid.json.groups || []).length === 1 && g1?.classId === C1.id, String(grid.json?.error || grid.json?.groups?.length));
+check('总览含本次清单', (g1?.lists || []).some((x) => x.id === listId), JSON.stringify(g1?.lists?.length));
+check('总览格子有状态', (g1?.rows || []).some((r) => r.cells[listId] === '过关'), `${g1?.rows?.length} 行`);
+check('总览只含本班在读学生', (g1?.rows || []).length === studying, `${g1?.rows?.length} 行 / 在读 ${studying}`);
 check('总览下发打勾口径', grid.json.pass === '过关' && (grid.json.statuses || []).join(',') === '过关,待重背,延背,免背', JSON.stringify({ pass: grid.json.pass, st: grid.json.statuses }));
 const crossGrid = await call('recitation.grid', { token: T, qs: `&classId=${C2.id}` });
 check('越权班级总览被拒', crossGrid.status === 403, String(crossGrid.json?.error));
+
+// 6b. 不传班级 = 全部任教班合并，每班各取最近 days 份
+const allT = await call('recitation.grid', { token: T });
+check('教师合并不越权', (allT.json.groups || []).length === 1 && allT.json.groups[0]?.classId === C1.id, JSON.stringify({ n: allT.json?.groups?.length, err: allT.json?.error }));
+// 管理员给第二个班也发一份，合并视图才有两节可分
+const extra = await call('recitation.save', {
+  token: admin, body: { subjectId: YU.id, classIds: [C2.id], title: '《岳阳楼记》', part: '第五段', assignDate: '2026-09-25' },
+});
+const extraId = (extra.json.ids || [])[0];
+const allA = await call('recitation.grid', { token: admin, qs: '&days=1' });
+const names = (allA.json.groups || []).map((g) => g.className);
+check('管理员合并按班分节', names.length === 2 && names[0] === C1.name && names[1] === C2.name, names.join('/'));
+check('每班各取 days 份不互相挤掉', (allA.json.groups || []).every((g) => g.lists.length === 1), (allA.json.groups || []).map((g) => g.lists.length).join(','));
+const c1All = (await call('recitation.list', { token: admin, qs: `&classId=${C1.id}` })).json.lists || [];
+const newest = c1All.map((x) => x.assignDate).sort().at(-1);
+const mergedC1 = (allA.json.groups || []).find((g) => g.classId === C1.id);
+check('截断后留最新一份', mergedC1?.lists[0]?.assignDate === newest, `${mergedC1?.lists[0]?.assignDate} vs ${newest}`);
+const mergedC2 = (allA.json.groups || []).find((g) => g.classId === C2.id);
+check('合并里各班列互不混用', (mergedC1?.rows || []).every((r) => !(extraId in (r.cells || {}))) && mergedC2?.lists[0]?.id === extraId, JSON.stringify({ c1: Object.keys(mergedC1?.rows?.[0]?.cells || {}), c2: mergedC2?.lists?.map((l) => l.id) }));
+const withLists = new Set(((await call('recitation.list', { token: admin })).json.lists || []).map((l) => l.classId));
+check('无清单的班不进合并', (allA.json.groups || []).length === withLists.size, `${(allA.json.groups || []).length} 组 vs ${withLists.size} 班`);
+await call('recitation.save', { token: admin, body: { id: extraId, delete: true } });
+const emptyGrid = await call('recitation.grid', { token: admin, qs: `&classId=${C2.id}` });
+check('单班查空班仍回一组空列，供前端出空态', (emptyGrid.json.groups || []).length === 1
+  && emptyGrid.json.groups[0]?.classId === C2.id && !emptyGrid.json.groups[0]?.lists.length,
+  JSON.stringify({ n: emptyGrid.json?.groups?.length, l: emptyGrid.json?.groups?.[0]?.lists?.length }));
 
 // 7. 作业：管理员多班创建、无 part/attempt、独立状态集
 const hw = await call('homework.save', {
@@ -273,7 +302,9 @@ check('创建人可删自己的清单', del.json?.ok === true, String(del.json?.
 const afterDel = await call('recitation.list', { token: T });
 check('清单已从列表消失', !(afterDel.json.lists || []).some((x) => x.id === listId), String(afterDel.json?.lists?.length));
 const gridAfter = await call('recitation.grid', { token: T, qs: `&classId=${C1.id}&days=14` });
-check('删除后登记不再出现', !(gridAfter.json.lists || []).some((x) => x.id === listId), String(gridAfter.json?.lists?.length));
+const afterG1 = (gridAfter.json.groups || [])[0];
+check('删除后登记不再出现', !(afterG1?.lists || []).some((x) => x.id === listId), JSON.stringify(afterG1?.lists?.length));
+check('单班查询始终只回本班一组', (gridAfter.json.groups || []).length === 1 && afterG1?.classId === C1.id, JSON.stringify({ n: gridAfter.json?.groups?.length, lists: afterG1?.lists?.length }));
 const orphan = await call('recitation.sheet', { token: T, qs: `&listId=${listId}` });
 check('删除后清单不可读', orphan.status === 404, String(orphan.json?.error));
 

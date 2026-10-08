@@ -222,7 +222,7 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <Card className={cn("gap-0 border shadow-soft", className)}>
+    <Card className={cn("gap-0 border py-0 shadow-soft", className)}>
       {title ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5 max-md:px-4 max-md:py-3">
           <div className="min-w-0">

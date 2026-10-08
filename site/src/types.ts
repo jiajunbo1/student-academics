@@ -105,10 +105,17 @@ export interface DailySheet {
   hasPart: boolean; hasAttempt: boolean; hasPlan: boolean;
 }
 
-export interface DailyGrid {
-  kind: DailyKind; className: string;
+/** 登记总览的一组 = 一个班：行=本班在读学生，列=本班最近若干份清单 */
+export interface DailyGridGroup {
+  classId: string; className: string;
   lists: { id: string; title: string; part: string; assignDate: string }[];
   rows: { studentId: string; studentNo: string; name: string; cells: Record<string, string | null> }[];
+}
+
+export interface DailyGrid {
+  kind: DailyKind;
+  /** 「全部任教班级」时多组，选定单个班级时一组 */
+  groups: DailyGridGroup[];
   statuses: string[]; pass: string;
 }
 
