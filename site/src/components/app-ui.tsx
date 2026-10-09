@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, CalendarIcon, MonitorSmartphone, Moon, Sun, TriangleAlert } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarIcon, Check, MonitorSmartphone, Moon, Sun, TriangleAlert } from "lucide-react";
+import { ReferenceLine } from "recharts";
 import { zhCN } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableCell, TableFooter, TableHead, TableRow } from "@/components/ui/table";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -98,21 +101,99 @@ export function PageHeader({
   description,
   eyebrow,
   children,
+  className,
 }: {
   title: string;
   description?: string;
   eyebrow?: ReactNode;
   children?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="page-head mb-4 flex flex-wrap items-end justify-between gap-3">
+    <div className={cn("page-head flex flex-wrap items-end justify-between gap-x-3 gap-y-2", className)}>
       <div className="min-w-0">
         {eyebrow ? <p className="brand-eyebrow">{eyebrow}</p> : null}
-        <h1 className="text-xl font-semibold tracking-tight md:text-2xl">{title}</h1>
+        {/* 手机端这个 h1 转 sr-only：可见标题由 sticky 顶栏承载，读屏仍有标题层 */}
+        <h1 className="text-[17px] font-semibold leading-tight tracking-tight max-md:sr-only md:text-[1.375rem]">
+          {title}
+        </h1>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
     </div>
+  );
+}
+
+/**
+ * 字段块：可见 Label + 控件（+ 可选提示），自己不占竖向 margin ——
+ * 行间距交给父级（items-end + gap / space-y），这样按钮才能和输入框底对齐。
+ * 字段名一律由 Label 承载：靠 placeholder 的话，一填字名字就没了。
+ */
+export function Field({
+  label,
+  htmlFor,
+  hint,
+  className,
+  children,
+}: {
+  label: ReactNode;
+  htmlFor?: string;
+  hint?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div data-slot="field" className={cn("min-w-0", className)}>
+      <Label htmlFor={htmlFor} className="mb-1 block text-xs font-normal text-muted-foreground">{label}</Label>
+      {children}
+      {hint ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+export type SegmentItem = { value: string; label: ReactNode; count?: number | string };
+
+/**
+ * 分段切换：shadcn TabsList 的灰底胶囊与全站 brand 口径脱节，这里只换皮，
+ * 语义仍是 Radix Tabs 的 tablist/tab（键盘、aria-selected、focus 都沿用外层 <Tabs>）。
+ * 需放在 Tabs 根节点内使用；count 只在页面已经握有该数据时才传。
+ */
+export function SegmentedControl({
+  items,
+  className,
+}: {
+  items: SegmentItem[];
+  className?: string;
+}) {
+  return (
+    <TabsList
+      data-slot="segment-list"
+      variant="line"
+      className={cn("w-full justify-between gap-1 bg-muted/60 p-1", className)}
+    >
+      {items.map((it) => (
+        <TabsTrigger
+          key={it.value}
+          value={it.value}
+          data-slot="segment-trigger"
+          className={cn(
+            "group/seg min-w-0 flex-1 rounded-md bg-transparent px-2.5 text-[13px] font-medium text-muted-foreground",
+            "after:hidden data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
+          )}
+        >
+          <span className="truncate">{it.label}</span>
+          {it.count !== undefined ? (
+            <span className="shrink-0 tabular-nums text-xs text-muted-foreground group-data-[state=active]/seg:text-brand">
+              {it.count}
+            </span>
+          ) : null}
+          <span
+            aria-hidden="true"
+            className="brand-band absolute inset-x-2.5 bottom-0 h-[2px] rounded-full opacity-0 transition-opacity group-data-[state=active]/seg:opacity-100"
+          />
+        </TabsTrigger>
+      ))}
+    </TabsList>
   );
 }
 
@@ -151,22 +232,9 @@ export function useMarkColorValues(keys: string[]): (key: string) => string {
   );
 }
 
-/** 班级色点：与 ClassMark 同色，用于班级名前的标识 */
+/** 班级色点：同班同色，用于班级名前的标识 */
 export function ClassDot({ color, className }: { color: string; className?: string }) {
   return <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", className)} style={{ background: color }} />;
-}
-
-/** 班级色标头像：同班同色，列表、抽屉与花名册共用 */
-export function ClassMark({ name, color, large }: { name: string; color: string; large?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`grid shrink-0 place-items-center rounded-full font-semibold ${large ? "size-10 text-sm" : "size-6 text-[11px]"}`}
-      style={{ color, background: `color-mix(in oklab, ${color} 14%, transparent)` }}
-    >
-      {name.slice(0, 1)}
-    </span>
-  );
 }
 
 /** SVG 的 fill 属性不认 var()，图表取色要先从 CSS 变量解析出真实颜色 */
@@ -188,8 +256,14 @@ export function useThemeColors(names: string[]): Record<string, string> {
 /**
  * 趋势图纵轴兜底：只有一次考试（或分数几乎相同）时，recharts 的 auto 会把刻度
  * 挤成 516/519/522 这种没有信息量的窄带，这里至少撑开 ±5 并取整到 5 或 10。
+ * `include` 用来把及格线这类必须看得见的参照值纳入域内，否则全在 90 分以上时
+ * 域会缩到 108–122，及格线画不出来（或反过来把走势压平）。
  */
-export function trendDomain(values: (number | null | undefined)[], ceil?: number): [number, number] {
+export function trendDomain(
+  values: (number | null | undefined)[],
+  ceil?: number,
+  include?: number,
+): [number, number] {
   const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
   if (!xs.length) return [0, ceil ?? 100];
   const lo = Math.min(...xs);
@@ -198,7 +272,11 @@ export function trendDomain(values: (number | null | undefined)[], ceil?: number
   const step = pad >= 10 ? 10 : 5;
   let min = Math.max(0, Math.floor((lo - pad) / step) * step);
   let max = Math.ceil((hi + pad) / step) * step;
-  if (ceil != null && max > ceil) max = ceil;
+  if (include != null && Number.isFinite(include)) {
+    if (include < min) min = Math.max(0, Math.floor((include - step / 2) / step) * step);
+    if (include > max) max = Math.ceil((include + step / 2) / step) * step;
+    if (ceil != null && max > ceil) max = ceil;
+  }
   // 轴高至少两个刻度；被满分截断时改为向下补足，不越过 ceil
   if (max - min < step * 2) {
     max = Math.min(ceil ?? Infinity, Math.max(max, min + step * 2));
@@ -379,12 +457,15 @@ export function StatCard({
  * 全站统一的进度条：清单完成度、登记总览表头、看板关键指标都读这一份。
  * 三种排布 —— 默认「条 + n / N」；wide=条撑满剩余宽度；传 label 则换成「上：标题左 / 数值右，下：通长条」。
  * 口径：满档转绿，未满用品牌渐变；分母为 0 时画空条，不显示 100%。
+ * 传 `threshold`（与 value/max 同单位）就是"达线即及格"这类判据：条上画一道刻线，
+ * 到线转 success、未到线转 warning，不再靠"满档才绿"来表达及格。
  */
 export function StatBar({
   value,
   max,
   label,
   text,
+  threshold,
   thin,
   wide,
   hideCount,
@@ -395,22 +476,29 @@ export function StatBar({
   label?: ReactNode;
   /** 数值文案，默认「value / max」；stacked 模式默认百分比 */
   text?: ReactNode;
+  /** 及格线：与 value/max 同一单位，条上画刻线并据此着色 */
+  threshold?: number;
   thin?: boolean;
   wide?: boolean;
   hideCount?: boolean;
   className?: string;
 }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  const tpct = threshold != null && max > 0 ? Math.min(100, Math.max(0, (threshold / max) * 100)) : null;
+  const reached = threshold != null ? value >= threshold : pct >= 100 && pct > 0;
   const bar = (
     <span className={cn(
-      "block overflow-hidden rounded-full bg-muted",
+      "relative block overflow-hidden rounded-full bg-muted",
       label ? "h-2 w-full" : thin ? "h-1" : "h-1.5",
       !label && (wide ? "min-w-0 flex-1" : "w-24 shrink-0"),
       className,
     )}>
       <span className={cn("block h-full rounded-full transition-all",
-        pct >= 100 && pct > 0 ? "bg-success" : "brand-band")}
+        reached ? "bg-success" : threshold != null ? "bg-warning" : "brand-band")}
         style={{ width: `${pct}%` }} />
+      {tpct === null ? null : (
+        <i aria-hidden="true" className="absolute inset-y-0 w-px bg-foreground/45" style={{ left: `${tpct}%` }} />
+      )}
     </span>
   );
 
@@ -436,13 +524,43 @@ export function StatBar({
   );
 }
 
+/**
+ * 分数口径的唯一来源：学科满分 150，及格 = 60%、优秀 = 85%。
+ * 库里分数按十分之一分存，页面按分显示，所以阈值一律用**比例**表达，
+ * 这样总分（满分 = 150 × 科目数）也自动跟着缩放。
+ */
+export const SCORE_MAX = 150;
 const PASS_RATIO = 0.6;
 const EXCELLENT_RATIO = 0.85;
 
-export function scoreTenthsTone(tenths: number, maxTenths = 1500): Tone {
-  if (tenths >= maxTenths * EXCELLENT_RATIO) return "success";
-  if (tenths >= maxTenths * PASS_RATIO) return "info";
+/** 及格线（分）：图表画线、阈值判据、文案里写的"90"都取这一个数 */
+export const PASS_SCORE = SCORE_MAX * PASS_RATIO;
+
+/** 分档：以满分比例为边界，保证 90（及格线）正落在档边界上 */
+export const SCORE_BANDS: { from: number; to: number; tone: Tone; label: string }[] = [
+  { from: 0, to: 0.4, tone: "danger", label: "待提高 < 60" },
+  { from: 0.4, to: 0.6, tone: "warning", label: "60 – 89" },
+  { from: 0.6, to: 0.75, tone: "info", label: "90 – 112" },
+  { from: 0.75, to: 0.85, tone: "primary", label: "113 – 127" },
+  { from: 0.85, to: 1, tone: "success", label: "优秀 ≥ 128" },
+];
+
+/** 分数（分）落进哪一档；空值返回 null，由调用方显示占位 */
+export function scoreBand(score: number | null | undefined, max = SCORE_MAX) {
+  if (score == null || max <= 0) return null;
+  const r = Math.min(1, Math.max(0, score / max));
+  return SCORE_BANDS.find((b) => r < b.to) ?? SCORE_BANDS[SCORE_BANDS.length - 1];
+}
+
+/** 分数语义色：优秀=success、及格=info、不及格=danger（与 ScoreText 同一判据） */
+export function scoreTone(score: number, max = SCORE_MAX): Tone {
+  if (score >= max * EXCELLENT_RATIO) return "success";
+  if (score >= max * PASS_RATIO) return "info";
   return "danger";
+}
+
+export function scoreTenthsTone(tenths: number, maxTenths = SCORE_MAX * 10): Tone {
+  return scoreTone(tenths / 10, maxTenths / 10);
 }
 
 /** 分数热力底色：优秀偏绿、及格偏蓝、待提高偏红，扫一眼就能定位偏弱科目 */
@@ -457,7 +575,7 @@ const HEAT_CLASS: Record<Tone, string> = {
 
 export function ScoreText({
   tenths,
-  max = 1500,
+  max = SCORE_MAX * 10,
   heat,
   className,
 }: {
@@ -495,6 +613,85 @@ export function Pill({ tone = "info", children }: { tone?: Tone; children: React
       )}
     >
       {children}
+    </span>
+  );
+}
+
+/** 及格线：图里没有 90 分的锚点时，"这次到底及没及格"只能点 Tooltip 猜 */
+export function PassLine({ y = PASS_SCORE }: { y?: number }) {
+  const C = useThemeColors(["--destructive"]);
+  return <ReferenceLine y={y} stroke={C["--destructive"]} strokeDasharray="5 4" strokeOpacity={0.75} />;
+}
+
+export type LegendItem = {
+  label: ReactNode;
+  /** 图表系列色（已解析的真实色值），与 tone 二选一 */
+  color?: string;
+  /** 语义色档：状态类图例走这一套，渲染成与正文同款的 Pill */
+  tone?: Tone;
+  shape?: "dot" | "line" | "dash" | "square" | "ring" | "tick";
+  /** 在 Pill 前加一颗勾，用于"这就是达标态"那个档 */
+  mark?: "check";
+};
+
+/**
+ * 图例。recharts 自带的 Legend 只认识系列，画不出"及格线"这类参照物，
+ * 而且字号/间距与表格上方那排胶囊不一致，所以全站只用这一份。
+ */
+export function ChartLegend({ label = "图例", items, className }: {
+  label?: ReactNode;
+  items: LegendItem[];
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-2.5 gap-y-1.5", className)}>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {items.map((it, i) => it.tone ? (
+        <Pill key={i} tone={it.tone}>
+          {it.mark === "check" ? <Check className="size-3" strokeWidth={3} /> : null}
+          {it.label}
+        </Pill>
+      ) : (
+        <span key={i} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <LegendSwatch {...it} />
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function LegendSwatch({ color, shape = "dot" }: LegendItem) {
+  const bg = shape === "dash"
+    ? `repeating-linear-gradient(90deg, ${color ?? "currentColor"} 0 5px, transparent 5px 9px)`
+    : color;
+  return (
+    <i aria-hidden="true" className={cn("shrink-0",
+      shape === "dot" && "size-2 rounded-full",
+      shape === "square" && "size-2.5 rounded-[3px]",
+      (shape === "line" || shape === "dash") && "h-[3px] w-4 rounded-full",
+      shape === "ring" && "size-3.5 rounded-full border border-dashed border-muted-foreground/45",
+      /* 与 StatBar 上的及格刻线同一画法，读图例就知道那道竖线是什么 */
+      shape === "tick" && "h-2.5 w-px bg-foreground/45")}
+      style={shape === "ring" || shape === "tick" ? undefined : { background: bg }} />
+  );
+}
+
+/**
+ * 分段占比条：一段一档，宽度按人数占比。只画"构成"（多少人落在哪一档），
+ * 进度 / 是否达线仍用 StatBar，两者不要混用。
+ */
+export function StackBar({ parts, className }: {
+  parts: { key: string; count: number; tone: Tone; label: string }[];
+  className?: string;
+}) {
+  const total = parts.reduce((a, p) => a + p.count, 0);
+  return (
+    <span role="img" aria-label={parts.map((p) => `${p.label} ${p.count} 人`).join("，")}
+      className={cn("flex h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted", className)}>
+      {total === 0 ? null : parts.filter((p) => p.count > 0).map((p) => (
+        <i key={p.key} title={`${p.label}：${p.count} 人`} className="h-full" style={{ flexGrow: p.count, flexBasis: 0, background: `var(${TONE_VAR[p.tone]})` }} />
+      ))}
     </span>
   );
 }

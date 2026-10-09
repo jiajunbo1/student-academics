@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   LayoutDashboard, Users, ClipboardList, Settings, BookOpenCheck, BookMarked,
-  GraduationCap, LogOut, KeyRound, ShieldCheck, RefreshCw, AlertTriangle,
+  ChevronRight, GraduationCap, LogOut, KeyRound, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, errorMessage, getAppToken, setAppToken, setUnauthorizedHandler, type ApiError } from "./api";
 import type { Me } from "./types";
-import { CardSkeleton, ThemeToggle } from "./components/app-ui";
+import { CardSkeleton, Pill, ThemeToggle } from "./components/app-ui";
 import { ForcePasswordScreen, LoginScreen, ChangePasswordForm } from "./components/auth-screens";
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
@@ -31,6 +31,73 @@ const NAV = [
 type Tab = (typeof NAV)[number]["key"];
 
 const ROLE_LABEL: Record<Me["role"], string> = { ADMIN: "管理员", TEACHER: "教师", STUDENT: "学生" };
+const ROLE_TONE: Record<Me["role"], "primary" | "info" | "success"> = { ADMIN: "primary", TEACHER: "info", STUDENT: "success" };
+
+const fmtWhen = (iso: string | null) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+/**
+ * 个人小档案：手机端顶栏原来只有三个图标按钮，看不到"我是谁"；
+ * 桌面侧栏底部那一坨（头像 + 两个按钮）也并进同一个弹层，两处共用一份。
+ */
+function AccountMenu({
+  account, onPassword, onLogout, side = "bottom", children,
+}: {
+  account: Me;
+  onPassword: () => void;
+  onLogout: () => void;
+  side?: "top" | "right" | "bottom" | "left";
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const go = (fn: () => void) => () => { setOpen(false); fn(); };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent side={side} align="end" className="w-72 gap-0 p-0">
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <Avatar className="size-10">
+            <AvatarFallback className="bg-primary/12 text-sm text-primary">{(account.displayName || "用").slice(0, 1)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{account.displayName}</p>
+            <p className="truncate font-mono text-[11px] text-muted-foreground">{account.username}</p>
+          </div>
+          <Pill tone={ROLE_TONE[account.role]}>{ROLE_LABEL[account.role]}</Pill>
+        </div>
+        <dl className="space-y-1 border-t px-4 py-2.5 text-[11px]">
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">最近登录</dt>
+            <dd className="tabular-nums">{fmtWhen(account.lastLoginAt)}</dd>
+          </div>
+          {account.mustChange ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">密码</dt>
+              <dd className="text-warning">需修改后才能使用</dd>
+            </div>
+          ) : null}
+          {account.lockedUntil ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">状态</dt>
+              <dd className="text-destructive">锁定至 {fmtWhen(account.lockedUntil)}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div className="flex gap-2 border-t p-3 [&>button]:flex-1">
+          <Button size="sm" variant="outline" className="gap-1.5 max-md:min-h-11" onClick={go(onPassword)}>
+            <KeyRound className="size-3.5" /> 修改密码
+          </Button>
+          <Button size="sm" variant="ghost" className="gap-1.5 max-md:min-h-11" onClick={go(onLogout)}>
+            <LogOut className="size-3.5" /> 退出
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function App() {
   const [account, setAccount] = useState<Me | null>(null);
@@ -108,8 +175,9 @@ export default function App() {
   }
 
   if (account?.mustChange) return <ForcePasswordScreen account={account} onDone={enter} />;
+  if (!account) return null;
 
-  const role = account?.role ?? "TEACHER";
+  const role = account.role;
   const isAdmin = role === "ADMIN";
   const nav = NAV.filter((n) => (n.roles as readonly string[]).includes(role));
   const current = nav.find((n) => n.key === tab) ?? nav[0];
@@ -146,53 +214,55 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="space-y-3 border-t border-sidebar-border px-4 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <Avatar className="size-8">
-              <AvatarFallback className="bg-primary/12 text-xs text-primary">{(account?.displayName || "用").slice(0, 1)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{account?.displayName}</p>
-              <p className="truncate text-[11px] text-muted-foreground">{account?.username}</p>
-            </div>
-            <ThemeToggle />
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => setPwOpen(true)}>
-              <KeyRound className="size-3.5" /> 修改密码
+        <div className="flex items-center gap-1 border-t border-sidebar-border p-3">
+          <AccountMenu account={account} side="right" onPassword={() => setPwOpen(true)} onLogout={() => void logout()}>
+            <Button variant="ghost" className="min-w-0 flex-1 justify-start gap-2.5 px-2 py-2">
+              <Avatar className="size-8 shrink-0">
+                <AvatarFallback className="bg-primary/12 text-xs text-primary">{(account.displayName || "用").slice(0, 1)}</AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-sm font-medium">{account.displayName}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {ROLE_LABEL[role]} · {account.username}
+                </span>
+              </span>
             </Button>
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => void logout()}>
-              <LogOut className="size-3.5" /> 退出
-            </Button>
-          </div>
+          </AccountMenu>
+          <ThemeToggle />
         </div>
       </aside>
 
       <div className="flex min-h-dvh flex-col md:pl-60">
-        <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b px-4 md:px-6">
+        <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b px-4 md:h-11 md:px-6">
           <GraduationCap className="size-5 text-primary md:hidden" />
-          <span className="brand-band hidden size-2 shrink-0 rounded-full md:block" aria-hidden="true" />
-          <span className="text-sm font-semibold md:text-base">{current?.label}</span>
-          <ThemeToggle className="md:hidden" />
-          <Dialog open={pwOpen} onOpenChange={setPwOpen}>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden" aria-label="修改密码"><KeyRound className="size-4" /></Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>修改密码</DialogTitle>
-                <DialogDescription>修改后其他设备需要重新登录。</DialogDescription>
-              </DialogHeader>
-              <ChangePasswordForm username={account?.username ?? ""} onDone={(a) => { setAccount(a); setPwOpen(false); }} />
-            </DialogContent>
-          </Dialog>
-          <Button variant="ghost" size="sm" className="gap-1.5 md:hidden" onClick={() => void logout()}>
-            <LogOut className="size-4" /> 退出
-          </Button>
-          <Badge variant="outline" className="ml-auto hidden gap-1 md:inline-flex">
-            <ShieldCheck className="size-3" /> {ROLE_LABEL[role]}
-          </Badge>
+          {/* 手机端：顶栏就是页面标题；桌面：降为定位线，页面里那个 h1 才是唯一标题 */}
+          <span className="truncate text-sm font-semibold md:hidden">{current?.label}</span>
+          <span className="hidden items-center gap-1.5 text-xs md:flex">
+            <span className="text-muted-foreground">学业管理</span>
+            <ChevronRight className="size-3 text-muted-foreground/60" aria-hidden="true" />
+            <span className="font-medium">{current?.label}</span>
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <ThemeToggle className="md:hidden" />
+            <AccountMenu account={account} onPassword={() => setPwOpen(true)} onLogout={() => void logout()}>
+              <Button variant="ghost" size="icon" className="size-11 max-md:min-h-11 md:hidden" aria-label="个人小档案">
+                <Avatar className="size-8">
+                  <AvatarFallback className="bg-primary/12 text-xs text-primary">{(account.displayName || "用").slice(0, 1)}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </AccountMenu>
+          </div>
         </header>
+
+        <Dialog open={pwOpen} onOpenChange={setPwOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>修改密码</DialogTitle>
+              <DialogDescription>修改后其他设备需要重新登录。</DialogDescription>
+            </DialogHeader>
+            <ChangePasswordForm username={account.username} onDone={(a) => { setAccount(a); setPwOpen(false); }} />
+          </DialogContent>
+        </Dialog>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 md:px-6 md:pb-8">
           {current?.key === "dashboard" && <Dashboard onChangeTab={setTab} isAdmin={isAdmin} />}
@@ -203,10 +273,7 @@ export default function App() {
           {current?.key === "settings" && <SettingsPage isAdmin={isAdmin} me={account} onMeChanged={setAccount} />}
         </main>
 
-        <nav
-          className="glass-chrome fixed inset-x-0 bottom-0 z-40 flex border-t pb-[var(--safe-bottom)] md:hidden"
-          aria-label="主导航"
-        >
+        <nav className="glass-chrome fixed inset-x-0 bottom-0 z-40 flex border-t pb-[var(--safe-bottom)] md:hidden" aria-label="页面导航">
           {nav.map(({ key, short, icon: Icon }) => {
             const active = current?.key === key;
             return (

@@ -1,35 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { BookMarked, ClipboardList, Inbox, NotebookPen, TrendingUp, Trophy } from "lucide-react";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiGet, errorMessage, fmtScore } from "../api";
 import type { DailyKind, PortalDailyItem, PortalData, PortalRecord } from "../types";
 import {
-  CardList, CardSkeleton, EmptyState, PageHeader, Panel, Pill, RowCard, ScoreText, StatCard, STUDENT_STATUS_TONE,
+  CardList, CardSkeleton, ChartLegend, EmptyState, PageHeader, Panel, PASS_SCORE, Pill, RowCard, ScoreText, StatCard, STUDENT_STATUS_TONE,
   TableSkeleton, TotalCell, TotalRow, dailyStatusTone, trendDomain, useThemeColors,
 } from "../components/app-ui";
 import { SETTLED } from "./Daily";
 
-/** 折线图取色同样从 token 来，保证与看板一致 */
-const CHART_VARS = ["--chart-1", "--warning", "--muted-foreground", "--border"];
+/** 折线图取色同样从 token 来，保证与看板一致；总分与班均是"指标系列"，用 chart-*，不占实体色 */
+const CHART_VARS = ["--chart-1", "--chart-2", "--muted-foreground", "--border"];
 
 const rankLabel = (r: PortalRecord) => (r.rank ? `第 ${r.rank} 名 / ${r.classSize} 人` : "未参加本次考试");
 
-/** 手机端卡片列表没有表头，用科目首字做视觉锚点 */
-const SubjectBadge = ({ name }: { name: string }) => (
-  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-xs font-semibold text-muted-foreground">
-    {name.slice(0, 1)}
-  </span>
-);
 
 export default function Portal() {
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState("");
   const C = useThemeColors(CHART_VARS);
-  const palette = { mine: C["--chart-1"], avg: C["--warning"], axis: C["--muted-foreground"], grid: C["--border"] };
+  const palette = { mine: C["--chart-1"], avg: C["--chart-2"], axis: C["--muted-foreground"], grid: C["--border"] };
 
   const load = useCallback(async () => {
     setError("");
@@ -91,20 +85,27 @@ export default function Portal() {
       </div>
 
       <Panel title="成绩趋势" description={latest ? `最近一次：${latest.examName} · ${latest.examDate}` : undefined}
-        contentClassName="h-72">
+        contentClassName="space-y-3">
         {records.length ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trendRows}
-              margin={{ top: 6, right: 10, left: -12, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={palette.grid} />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} domain={trendY} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v, key) => [`${v} 分`, key === "mine" ? "我的总分" : "班级平均"]} />
-              <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => (v === "mine" ? "我的总分" : "班级平均")} />
-              <Line type="monotone" dataKey="mine" stroke={palette.mine} strokeWidth={2.4} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="avg" stroke={palette.avg} strokeWidth={2} strokeDasharray="4 4" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          <>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendRows}
+                  margin={{ top: 6, right: 10, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={palette.grid} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 12, fill: palette.axis }} tickLine={false} axisLine={false} domain={trendY} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v, key) => [`${v} 分`, key === "mine" ? "我的总分" : "班级平均"]} />
+                  <Line type="monotone" dataKey="mine" stroke={palette.mine} strokeWidth={2.4} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="avg" stroke={palette.avg} strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <ChartLegend items={[
+              { label: "我的总分", color: palette.mine, shape: "line" },
+              { label: "班级平均", color: palette.avg, shape: "dash" },
+            ]} />
+          </>
         ) : <EmptyState icon={ClipboardList} title="还没有成绩" description="老师录入成绩后，这里会显示你与班级平均分的走势。" />}
       </Panel>
 
@@ -113,11 +114,10 @@ export default function Portal() {
           <CardList className="md:hidden">
             {data.subjects.filter((s) => latest.cells[s.id] !== undefined && latest.cells[s.id] !== null).map((s) => {
               const mine = latest.cells[s.id] as number;
-              const gap = +(mine / 10 - 90).toFixed(1);
+              const gap = +(mine / 10 - PASS_SCORE).toFixed(1);
               return (
                 <RowCard
                   key={s.id}
-                  leading={<SubjectBadge name={s.name} />}
                   title={s.name}
                   right={
                     <div className="flex flex-col items-end gap-1">
@@ -143,13 +143,13 @@ export default function Portal() {
                 <TableRow>
                   <TableHead>科目</TableHead>
                   <TableHead className="text-right">分数</TableHead>
-                  <TableHead className="text-right">与及格线（90）差距</TableHead>
+                  <TableHead className="text-right">与及格线（{PASS_SCORE}）差距</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.subjects.filter((s) => latest.cells[s.id] !== undefined && latest.cells[s.id] !== null).map((s) => {
                   const mine = latest.cells[s.id] as number;
-                  const gap = +(mine / 10 - 90).toFixed(1);
+                  const gap = +(mine / 10 - PASS_SCORE).toFixed(1);
                   return (
                     <TableRow key={s.id}>
                       <TableCell>{s.name}</TableCell>

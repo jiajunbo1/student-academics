@@ -18,7 +18,7 @@ import {
 import { apiGet, apiPost, errorMessage } from "../api";
 import { cn } from "@/lib/utils";
 import {
-  CardList, ClassDot, ClassMark, ConfirmButton, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, SortHead,
+  CardList, ClassDot, ConfirmButton, EmptyState, Field, FilterSelect, PageHeader, Panel, Pill, RowCard, SortHead,
   TableSkeleton, TotalCell, TotalRow, useMarkColors, useTableSort, type SelectOption,
 } from "../components/app-ui";
 import { ChangePasswordForm } from "../components/auth-screens";
@@ -149,10 +149,15 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
         contentClassName="space-y-3 p-3 md:p-4"
       >
         {isAdmin && (
-          <div className="flex flex-wrap gap-2">
-            <Input placeholder="班级名，如 高一(4)班" value={newClass.name} onChange={(e) => setNewClass({ ...newClass, name: e.target.value })} className="h-10 w-full sm:h-9 sm:w-52" />
-            <FilterSelect blockOnMobile value={newClass.grade} onChange={(v) => setNewClass({ ...newClass, grade: v })} options={GRADE_OPTIONS} ariaLabel="年级" />
-            <Button size="sm" className="min-h-10 flex-1 md:flex-none" disabled={busy} onClick={() => { if (!newClass.name) { toast.error("请填写班级名"); return; } void run("classes.save", newClass, "班级已创建"); setNewClass({ ...newClass, name: "" }); }}>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="班级名称" htmlFor="new-class-name" className="w-full sm:w-52">
+              <Input id="new-class-name" placeholder="如 高一(4)班" value={newClass.name}
+                onChange={(e) => setNewClass({ ...newClass, name: e.target.value })} />
+            </Field>
+            <Field label="年级" className="w-full sm:w-36">
+              <FilterSelect value={newClass.grade} onChange={(v) => setNewClass({ ...newClass, grade: v })} options={GRADE_OPTIONS} ariaLabel="年级" className="w-full" />
+            </Field>
+            <Button size="sm" className="max-md:w-full max-md:min-h-11" disabled={busy} onClick={() => { if (!newClass.name) { toast.error("请填写班级名"); return; } void run("classes.save", newClass, "班级已创建"); setNewClass({ ...newClass, name: "" }); }}>
               <Plus /> 新建班级
             </Button>
           </div>
@@ -165,7 +170,6 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
               {shownClasses.map((c) => (
                 <RowCard
                   key={c.id}
-                  leading={<ClassMark name={c.name} color={colorOf(c.name)} large />}
                   title={c.name}
                   subtitle={c.grade}
                   right={<span className="text-sm"><span className="font-semibold tabular-nums">{c.studentCount}</span> 人</span>}
@@ -232,27 +236,23 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="new-account" className="text-xs text-muted-foreground">账号</Label>
-                <Input id="new-account" placeholder="如 teacher_li" value={staff.username} className="h-9 w-40"
+            <div className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+              <Field label="账号" htmlFor="new-account">
+                <Input id="new-account" placeholder="如 teacher_li" value={staff.username}
                   onChange={(e) => setStaff({ ...staff, username: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="new-name" className="text-xs text-muted-foreground">姓名</Label>
-                <Input id="new-name" placeholder="如 李老师" value={staff.displayName} className="h-9 w-32"
+              </Field>
+              <Field label="姓名" htmlFor="new-name">
+                <Input id="new-name" placeholder="如 李老师" value={staff.displayName}
                   onChange={(e) => setStaff({ ...staff, displayName: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">角色</Label>
-                <FilterSelect value={staff.role} onChange={(v) => setStaff({ ...staff, role: v })} options={STAFF_ROLE_OPTIONS} ariaLabel="新建账号角色" className="w-32" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="new-pw" className="text-xs text-muted-foreground">初始密码</Label>
-                <Input id="new-pw" type="text" placeholder="8 位以上，含字母数字" value={staff.password} className="h-9 w-44"
+              </Field>
+              <Field label="角色">
+                <FilterSelect value={staff.role} onChange={(v) => setStaff({ ...staff, role: v })} options={STAFF_ROLE_OPTIONS} ariaLabel="新建账号角色" className="w-full" />
+              </Field>
+              <Field label="初始密码" htmlFor="new-pw">
+                <Input id="new-pw" type="text" placeholder="8 位以上，含字母数字" value={staff.password}
                   onChange={(e) => setStaff({ ...staff, password: e.target.value })} />
-              </div>
-              <Button size="sm" disabled={busy} onClick={addStaff}><Plus /> 开通账号</Button>
+              </Field>
+              <Button size="sm" className="max-md:w-full max-md:min-h-11" disabled={busy} onClick={addStaff}><Plus /> 开通账号</Button>
             </div>
 
             {staff.role === "TEACHER" && (
@@ -265,24 +265,25 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
               </div>
             )}
 
-            <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-muted/40 p-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">范围</Label>
-                <FilterSelect value={seedForm.classId} onChange={(v) => setSeedForm({ ...seedForm, classId: v })}
-                  options={classes.map((c) => ({ value: c.id, label: c.name }))} allLabel="全部班级" ariaLabel="开通范围" className="w-40" />
+            <div className="rounded-xl border bg-muted/40 p-3">
+              <div className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <Field label="开通范围">
+                  <FilterSelect value={seedForm.classId} onChange={(v) => setSeedForm({ ...seedForm, classId: v })}
+                    options={classes.map((c) => ({ value: c.id, label: c.name }))} allLabel="全部班级" ariaLabel="开通范围" className="w-full" />
+                </Field>
+                <Field label="学生初始密码" htmlFor="seed-pw">
+                  <Input id="seed-pw" type="text" placeholder="如 Sx20260000" value={seedForm.initialPassword}
+                    onChange={(e) => setSeedForm({ ...seedForm, initialPassword: e.target.value })} />
+                </Field>
+                <ConfirmButton variant="outline" confirmLabel="开始开通" tone="default" busy={busy}
+                  className="max-md:w-full max-md:min-h-11"
+                  title="批量开通学生账号"
+                  description={`将为${seedForm.classId ? classes.find((c) => c.id === seedForm.classId)?.name ?? "所选班级" : "全部班级"}在读且尚未开通账号的学生创建账号：用户名为学号，初始密码统一，首次登录需修改。`}
+                  onConfirm={() => void seedStudents()}>
+                  <UserRound /> 批量开通学生账号
+                </ConfirmButton>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="seed-pw" className="text-xs text-muted-foreground">学生初始密码</Label>
-                <Input id="seed-pw" type="text" placeholder="如 Sx20260000" value={seedForm.initialPassword} className="h-9 w-44"
-                  onChange={(e) => setSeedForm({ ...seedForm, initialPassword: e.target.value })} />
-              </div>
-              <ConfirmButton variant="outline" confirmLabel="开始开通" tone="default" busy={busy}
-                title="批量开通学生账号"
-                description={`将为${seedForm.classId ? classes.find((c) => c.id === seedForm.classId)?.name ?? "所选班级" : "全部班级"}在读且尚未开通账号的学生创建账号：用户名为学号，初始密码统一，首次登录需修改。`}
-                onConfirm={() => void seedStudents()}>
-                <UserRound /> 批量开通学生账号
-              </ConfirmButton>
-              <p className="w-full text-xs text-muted-foreground sm:w-auto sm:flex-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 账号即学号，学生首次登录会被要求改成自己的密码。
               </p>
             </div>

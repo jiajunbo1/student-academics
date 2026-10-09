@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -16,8 +16,8 @@ import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
-  CardList, ClassDot, ClassMark, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
-  RowCard, SortHead, StatBar, StatPills, TableSkeleton, Toolbar, TotalCell, TotalRow, TONE_CLASS,
+  CardList, ChartLegend, ClassDot, ConfirmDialog, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill,
+  RowCard, SegmentedControl, SortHead, StatBar, StatPills, TableSkeleton, Toolbar, TotalCell, TotalRow, TONE_CLASS,
   dailyStatusTone, useMarkColors, useTableSort, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, DailyGrid, DailyGridGroup, DailyKind, DailyListRow, DailySheet, RefData, Subject } from "../types";
@@ -76,10 +76,10 @@ export default function Daily() {
         </Panel>
       ) : (
         <Tabs defaultValue="recitation" className="mt-4">
-          <TabsList>
-            <TabsTrigger value="recitation">{META.recitation.nav}</TabsTrigger>
-            <TabsTrigger value="homework">{META.homework.nav}</TabsTrigger>
-          </TabsList>
+          <SegmentedControl items={[
+            { value: "recitation", label: META.recitation.nav },
+            { value: "homework", label: META.homework.nav },
+          ]} />
           <TabsContent value="recitation" className="mt-4">
             <DailyKindView kind="recitation" classes={classes} subjects={subjects} />
           </TabsContent>
@@ -194,13 +194,10 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
                   {shownLists.map((l) => (
                     <TableRow key={l.id} className="cursor-pointer" onClick={() => setSheetId(l.id)}>
                       <TableCell>
-                        <span className="flex items-center gap-2">
-                          <ClassMark name={l.title} color={colorOf(l.className)} />
-                          <span className="min-w-0">
-                            <span className="block font-medium">{l.title}</span>
-                            {l.part ? <span className="block truncate text-xs text-muted-foreground">{l.part}</span> : null}
-                            {l.note ? <span className="block truncate text-[11px] text-muted-foreground">{l.note}</span> : null}
-                          </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium">{l.title}</span>
+                          {l.part ? <span className="block truncate text-xs text-muted-foreground">{l.part}</span> : null}
+                          {l.note ? <span className="block truncate text-[11px] text-muted-foreground">{l.note}</span> : null}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -269,7 +266,6 @@ function ListCard({ l, colorOf, settled, onOpen, onEdit, onDelete }: {
   return (
     <RowCard
       onClick={onOpen}
-      leading={<ClassMark name={l.title} color={colorOf(l.className)} large />}
       title={l.title}
       subtitle={[l.part, l.note].filter(Boolean).join(" · ")}
       right={<Pill tone={settled >= l.total ? "success" : "info"}>{settled}/{l.total}</Pill>}
@@ -332,7 +328,7 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
   const pass = data?.pass ?? "";
   const settled = useMemo(() => new Set(SETTLED[kind]), [kind]);
   const groups = useMemo(() => (data?.groups ?? []).filter((g) => g.lists.length), [data]);
-  // 节头与学生色标按班级取色，与清单表、看板同一套色板
+  // 节头色点按班级取色，与清单表、看板同一套色板
   const colorOf = useMarkColors(groups.map((g) => g.className));
 
   /** 打勾即写即存：请求只带状态，备注与应背日由后端沿用原值；失败回滚这一格 */
@@ -483,12 +479,9 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
                           return (
                             <TableRow key={r.studentId}>
                               <TableCell className="sticky left-0 z-10 bg-card freeze-start whitespace-nowrap">
-                                <span className="flex items-center gap-2">
-                                  <ClassMark name={r.name} color={colorOf(g.className)} />
-                                  <span className="min-w-0">
-                                    <span className="block font-medium leading-tight">{r.name}</span>
-                                    <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{r.studentNo}</span>
-                                  </span>
+                                <span className="min-w-0">
+                                  <span className="block font-medium leading-tight">{r.name}</span>
+                                  <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{r.studentNo}</span>
                                 </span>
                               </TableCell>
                               {g.lists.map((l) => (
@@ -519,19 +512,13 @@ function GridPanel({ kind, classId, rev, onChanged }: { kind: DailyKind; classId
             );
           })}
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">格子图例</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-              <i aria-hidden="true" className="size-3.5 rounded-full border border-dashed border-muted-foreground/45" />
-              未登记
-            </span>
-            {data.statuses.map((s) => (
-              <Pill key={s} tone={dailyStatusTone(s)}>
-                {s === pass ? <Check className="size-3" strokeWidth={3} /> : null}
-                {s}
-              </Pill>
-            ))}
-          </div>
+          <ChartLegend
+            label="格子图例"
+            items={[
+              { label: "未登记", shape: "ring" },
+              ...data.statuses.map((s) => ({ label: s, tone: dailyStatusTone(s), mark: s === pass ? "check" as const : undefined })),
+            ]}
+          />
           <p className="text-xs text-muted-foreground">
             点格子＝{pass}，再点一次撤销；需要其他状态点格子右侧的小箭头，检查日期按今天记。
             {groups.length > 1 ? `合并按班分节，每班各取最近 ${days} 份，导出时首列带班级。` : ""}
@@ -750,7 +737,6 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
   }, [kind, listId]);
   useEffect(() => { void load(); }, [load]);
 
-  const colorOf = useMarkColors([data?.list.className ?? ""]);
   const view = (r: DailySheet["rows"][number]) => draft[r.studentId] ?? { status: r.record?.status ?? "", note: r.record?.note ?? "" };
   const dirty = useMemo(() => {
     if (!data) return [];
@@ -877,7 +863,6 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
                     className={cn("card-lift rounded-xl border p-3",
                       changed ? "border-primary/50 bg-primary/5" : "border-border bg-card shadow-soft")}>
                     <div className="flex items-center gap-2.5">
-                      <ClassMark name={r.name} color={colorOf(data.list.className)} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{r.name}</p>
                         <p className="truncate font-mono text-[11px] text-muted-foreground">
@@ -926,13 +911,10 @@ function SheetDialog({ kind, listId, onClose, onChanged }: {
                     return (
                       <TableRow key={r.studentId} className={cn(changed && "row-changed")}>
                         <TableCell className="sticky left-0 z-10 bg-card freeze-start whitespace-nowrap">
-                          <span className="flex items-center gap-2">
-                            <ClassMark name={r.name} color={colorOf(data.list.className)} />
-                            <span>
-                              <span className="block font-medium">{r.name}</span>
-                              <span className="block font-mono text-[11px] text-muted-foreground">
-                                {r.studentNo}{off ? ` · ${r.status}` : ""}
-                              </span>
+                          <span>
+                            <span className="block font-medium">{r.name}</span>
+                            <span className="block font-mono text-[11px] text-muted-foreground">
+                              {r.studentNo}{off ? ` · ${r.status}` : ""}
                             </span>
                           </span>
                         </TableCell>

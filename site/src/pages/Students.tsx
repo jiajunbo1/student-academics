@@ -15,7 +15,7 @@ import {
 import { apiGet, apiPost, errorMessage } from "../api";
 import { ImportDialog, downloadCsv, type ImportResult } from "../components/import-export";
 import {
-  CardList, ClassDot, ClassMark, ConfirmDialog, EmptyState, ErrorBanner, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, SortHead, StatCard, STUDENT_STATUS_TONE, TableSkeleton, Toolbar, TotalCell, TotalRow, useTableSort,
+  CardList, ClassDot, ConfirmDialog, EmptyState, ErrorBanner, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText, SortHead, StatCard, STUDENT_STATUS_TONE, TableSkeleton, Toolbar, TotalCell, TotalRow, useTableSort,
   useMarkColors,
   type SelectOption,
 } from "../components/app-ui";
@@ -232,18 +232,17 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           <>
             <CardList className="md:hidden">
               {shown.map((r) => {
-                const markName = className.get(r.class_id) ?? "";
+                const cName = className.get(r.class_id) ?? "";
                 return (
                   <RowCard
                     key={r.id}
                     onClick={() => void openDetail(r)}
-                    leading={<ClassMark name={r.name} color={colorOf(markName)} large />}
                     title={r.name}
                     subtitle={`${r.student_no} · ${r.gender}`}
                     right={<Pill tone={STUDENT_STATUS_TONE[r.status] ?? "info"}>{r.status}</Pill>}
                     meta={
                       <>
-                        <span className="flex items-center gap-1.5"><ClassDot color={colorOf(markName)} />{markName || "未分班"}</span>
+                        <span className="flex items-center gap-1.5"><ClassDot color={colorOf(cName)} />{cName || "未分班"}</span>
                         <span>{r.guardian_name ?? "家长未登记"}</span>
                         {r.guardian_phone ? <span className="tabular-nums">{r.guardian_phone}</span> : null}
                       </>
@@ -281,21 +280,16 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                 </TableHeader>
                 <TableBody>
                   {shown.map((r) => {
-                    const markName = className.get(r.class_id) ?? "";
+                    const cName = className.get(r.class_id) ?? "";
                     return (
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => void openDetail(r)}>
                       <TableCell className="font-mono text-xs">{r.student_no}</TableCell>
-                      <TableCell className="font-medium">
-                        <span className="flex items-center gap-2">
-                          <ClassMark name={r.name} color={colorOf(markName)} />
-                          {r.name}
-                        </span>
-                      </TableCell>
+                      <TableCell className="font-medium">{r.name}</TableCell>
                       <TableCell className="text-muted-foreground">{r.gender}</TableCell>
                       <TableCell>
                         <span className="flex items-center gap-1.5">
-                          <ClassDot color={colorOf(markName)} />
-                          {markName}
+                          <ClassDot color={colorOf(cName)} />
+                          {cName}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -363,8 +357,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           {detail && (
             <>
               <SheetHeader className="border-b">
-                <SheetTitle className="flex items-center gap-2.5">
-                  <ClassMark name={detail.student.name} color={colorOf(detail.student.className ?? "")} large />
+                <SheetTitle>
                   <span>{detail.student.name} <span className="ml-1 font-mono text-sm font-normal text-muted-foreground">{detail.student.student_no}</span></span>
                 </SheetTitle>
                 <SheetDescription>
@@ -433,8 +426,6 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
     </div>
   );
 }
-
-/** 班级色标头像见 app-ui 的 ClassMark */
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div><Label className="mb-1 block text-xs text-muted-foreground">{label}</Label>{children}</div>

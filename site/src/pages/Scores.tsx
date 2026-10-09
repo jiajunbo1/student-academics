@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import {
   Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
@@ -18,8 +18,9 @@ import { cn } from "@/lib/utils";
 import { apiGet, apiPost, errorMessage, fmtScore } from "../api";
 import { downloadCsv, ImportDialog, type ImportResult } from "../components/import-export";
 import {
-  CardList, ChartSkeleton, ClassDot, ClassMark, DateField, EmptyState, FilterSelect, PageHeader, Panel, Pill, RowCard, ScoreText,
-  SortHead, TableSkeleton, Toolbar, TotalCell, TOTAL_FOOT_CLASS, trendDomain, useMarkColors, useMarkColorValues, useTableSort, useThemeColors, type SelectOption,
+  CardList, ChartLegend, ChartSkeleton, ClassDot, DateField, EmptyState, FilterSelect, PageHeader, Panel,
+  PASS_SCORE, PassLine, Pill, RowCard, SCORE_BANDS, SCORE_MAX, scoreBand, ScoreText, scoreTenthsTone, SegmentedControl, SortHead, StackBar,
+  TableSkeleton, Toolbar, TotalCell, TOTAL_FOOT_CLASS, trendDomain, useMarkColors, useMarkColorValues, useTableSort, useThemeColors, type SelectOption,
 } from "../components/app-ui";
 import type { ClassRow, Exam, RefData, SheetRow, StudentRow, Subject, SubjectTrend } from "../types";
 
@@ -138,7 +139,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
   });
 
   /**
-   * 合计行三档口径：班级平均 / 及格（满分 150 及格线 90 分 = 900 个十分之一分）/ 最高 · 最低。
+   * 合计行三档口径：班级平均 / 及格（PASS_SCORE 分，即满分的 60%）/ 最高 · 最低。
    * 每一列只统计该列有分的人，所以「平均」行下面标的是一科的分母，不是整场人数。
    */
   const summary = useMemo(() => {
@@ -148,7 +149,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       const sum = vals.reduce((a, b) => a + b, 0);
       return {
         avg: vals.length ? fmtScore(Math.round(sum / vals.length)) : "—",
-        pass: vals.length ? `${vals.filter((v) => v >= 900).length}/${vals.length}` : "—",
+        pass: vals.length ? `${vals.filter((v) => scoreTenthsTone(v) !== "danger").length}/${vals.length}` : "—",
         range: vals.length ? `${fmtScore(Math.max(...vals))} / ${fmtScore(Math.min(...vals))}` : "—",
       };
     });
@@ -161,6 +162,28 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       totalAvg: totals.length ? fmtScore(Math.round(sumTotal / totals.length)) : "—",
       avgOfAvg: scored.length ? (scored.reduce((a, r) => a + r.avg, 0) / scored.length).toFixed(1) : "—",
     };
+  }, [sheet]);
+
+  /** 分数分布：每科按 SCORE_BANDS 分档统计人数，分母只算该科已录入的人（与合计行同一口径） */
+  const distribution = useMemo(() => {
+    if (!sheet) return [];
+    return sheet.subjects.map((s) => {
+      const vals = sheet.rows
+        .map((r) => r.cells[s.id])
+        .filter((v): v is number => v != null)
+        .map((v) => v / 10);
+      return {
+        subject: s,
+        counted: vals.length,
+        pass: vals.filter((v) => v >= PASS_SCORE).length,
+        parts: SCORE_BANDS.map((b, i) => ({
+          key: `${s.id}-${i}`,
+          tone: b.tone,
+          label: b.label,
+          count: vals.filter((v) => scoreBand(v) === b).length,
+        })),
+      };
+    });
   }, [sheet]);
 
   /** 导入模板：行 = 当前筛选下的全部学生，列 = 我能录入的科目，空格表示该科不改 */
@@ -211,11 +234,14 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
       </Toolbar>
 
       <Tabs defaultValue="sheet">
-        <TabsList><TabsTrigger value="sheet">成绩单 / 排名</TabsTrigger><TabsTrigger value="entry">成绩录入</TabsTrigger></TabsList>
+        <SegmentedControl items={[
+          { value: "sheet", label: "成绩单 / 排名" },
+          { value: "entry", label: "成绩录入", count: sheet ? `${filledCount}/${sheet.rows.length}` : undefined },
+        ]} />
         <TabsContent value="sheet" className="mt-4">
           <Panel
             title="科目成绩单"
-            description={exam ? `${exam.name} · 分数为原始分，满分 150；点击科目名可看历年走势${isAdmin ? "" : "，总分含全班全部科目"}` : undefined}
+            description={exam ? `${exam.name} · 分数为原始分，满分 ${SCORE_MAX}、及格 ${PASS_SCORE}；点击科目名可看历年走势${isAdmin ? "" : "，总分含全班全部科目"}` : undefined}
             action={sheet?.rows.length ? <Badge variant="secondary" className="font-normal">{sheet.rows.length} 人</Badge> : undefined}
             contentClassName="p-3 md:p-0"
           >
@@ -233,7 +259,6 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                   {sheetRows.map((r) => (
                     <RowCard
                       key={r.studentId}
-                      leading={<ClassMark name={r.studentName} color={colorOf(r.className)} large />}
                       title={r.studentName}
                       subtitle={`${r.studentNo} · ${r.className}`}
                       right={
@@ -300,7 +325,6 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-2">
-                              <ClassMark name={r.studentName} color={colorOf(r.className)} />
                               <span className="font-medium">{r.studentName}</span>
                               <span className="font-mono text-xs text-muted-foreground">{r.studentNo}</span>
                             </span>
@@ -330,7 +354,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                           <TotalCell className="text-right">{summary.avgOfAvg}</TotalCell>
                         </TableRow>
                         <TableRow>
-                          <TotalCell note colSpan={3}>及格（≥ 90 分）</TotalCell>
+                          <TotalCell note colSpan={3}>及格（≥ {PASS_SCORE} 分）</TotalCell>
                           {summary.cols.map((c, i) => (
                             <TotalCell key={sheet.subjects[i].id} note className="text-right">{c.pass}</TotalCell>
                           ))}
@@ -352,13 +376,36 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
               </>
             )}
           </Panel>
+
+          {sheet?.rows.length ? (
+            <Panel
+              className="mt-4"
+              title="分数分布"
+              description={`各科按档统计人数，分母只算该科已录入的人；${PASS_SCORE} 分及格线正好落在档界上`}
+            >
+              <div className="space-y-2.5">
+                {distribution.map((d) => (
+                  <div key={d.subject.id} className="flex items-center gap-2.5">
+                    <span className="w-14 shrink-0 truncate text-xs text-muted-foreground">{d.subject.name}</span>
+                    {d.counted ? <StackBar parts={d.parts} /> : <span className="h-2.5 min-w-0 flex-1 rounded-full bg-muted" />}
+                    <span className={cn("w-24 shrink-0 text-right text-xs tabular-nums",
+                      d.counted && d.pass === d.counted ? "text-success" : "text-muted-foreground")}>
+                      {d.counted ? `及格 ${d.pass} / ${d.counted}` : "该科未录入"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <ChartLegend className="mt-3 border-t pt-3" label="分档"
+                items={SCORE_BANDS.map((b) => ({ label: b.label, tone: b.tone }))} />
+            </Panel>
+          ) : null}
         </TabsContent>
         <TabsContent value="entry" className="mt-4">
           <Card className="gap-0 border py-0 shadow-soft">
             <CardContent className="flex flex-col gap-2.5 p-3 md:flex-row md:flex-wrap md:items-center md:p-4">
               <span className="text-sm text-muted-foreground">录入科目</span>
               <FilterSelect value={subjectId} onChange={setSubjectId} options={subjectOptions} ariaLabel="选择录入科目" className="md:w-40" />
-              <span className="text-xs text-muted-foreground">满分 150，支持 0.5 分粒度；清空并保存即删除该成绩</span>
+              <span className="text-xs text-muted-foreground">满分 {SCORE_MAX}、及格 {PASS_SCORE}，支持 0.5 分粒度；清空并保存即删除该成绩</span>
               <Button className="min-h-11 w-full md:ml-auto md:w-auto" size="sm" disabled={saving || !students.length} onClick={() => void saveAll()}>
                 {saving ? "保存中…" : `保存 ${subject?.name ?? ""} 成绩`}
               </Button>
@@ -380,7 +427,6 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                     return (
                       <RowCard
                         key={s.id}
-                        leading={<ClassMark name={s.name} color={colorOf(s.className ?? "")} />}
                         title={s.name}
                         subtitle={s.student_no}
                         right={
@@ -402,12 +448,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                         return (
                         <TableRow key={s.id}>
                           <TableCell className="font-mono text-xs">{s.student_no}</TableCell>
-                          <TableCell className="font-medium">
-                            <span className="flex items-center gap-2">
-                              <ClassMark name={s.name} color={colorOf(s.className ?? "")} />
-                              {s.name}
-                            </span>
-                          </TableCell>
+                          <TableCell className="font-medium">{s.name}</TableCell>
                           <TableCell>
                             <Input inputMode="decimal" placeholder="—" className={cn("w-full sm:w-28", !filled && "bg-warning/8")}
                               value={draft[s.id] ?? ""}
@@ -441,7 +482,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
         guidance={
           <div className="space-y-2">
             <p>支持两种表头，其余列忽略：<b>学号, 科目, 分数</b>（长表，一行一个分数），或「下载模板」的宽表 <b>学号, 姓名, 班级, 语文, 数学…</b>（自动按列拆成多条）。</p>
-            <p>分数为 0-150，最多一位小数；<b>留空表示该科不改动</b>，要作废某条成绩请到「成绩录入」清空后保存。</p>
+            <p>分数为 0-{SCORE_MAX}，最多一位小数；<b>留空表示该科不改动</b>，要作废某条成绩请到「成绩录入」清空后保存。</p>
             <p>切换目标考试请在页面上方选好考试后再打开本窗口。<b>成绩都能看，但只有你任教的科目能写</b>：模板只列可录入的科目，导入别班或别科的行会标注越权原因并跳过。</p>
           </div>
         }
@@ -526,7 +567,7 @@ function trendCsv(t: SubjectTrend): (string | number | null)[][] {
   return rows;
 }
 
-const TREND_COLORS = ["--chart-1", "--warning", "--muted-foreground", "--border"];
+const TREND_COLORS = ["--chart-1", "--chart-2", "--destructive", "--muted-foreground", "--border"];
 
 /** 科目历年成绩弹窗：班级视图看各班平均分的涨跌，个人视图看单个学生与本班均分的对比 */
 function SubjectTrendDialog({ subject, classId, onClose }: {
@@ -567,14 +608,16 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
     我的成绩: student.scores[e.id] == null ? null : +(student.scores[e.id]! / 10).toFixed(1),
     班级平均: data.classAvg[student.classId]?.[e.id] ?? null,
   }));
-  /** 学科满分 150：纵轴按实际分数撑开，只有一次考试时也不会挤成窄带 */
+  /** 学科满分 150：纵轴按实际分数撑开，并把及格线纳入域内，否则全班都在 90 以上时线画不出来 */
   const classDomain = trendDomain(
     (data?.classes ?? []).flatMap((c) => (data?.exams ?? []).map((e) => data?.classAvg[c.id]?.[e.id] ?? null)),
-    150,
+    SCORE_MAX,
+    PASS_SCORE,
   );
   const mineDomain = trendDomain(
     mineRows.flatMap((r) => [r.我的成绩, r.班级平均]),
-    150,
+    SCORE_MAX,
+    PASS_SCORE,
   );
   const studentDelta = !student || !data
     ? null
@@ -609,10 +652,10 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
               </Button>
             </div>
             <Tabs defaultValue="class">
-            <TabsList>
-              <TabsTrigger value="class">班级对比</TabsTrigger>
-              <TabsTrigger value="student">个人走势</TabsTrigger>
-            </TabsList>
+            <SegmentedControl items={[
+              { value: "class", label: "班级对比", count: data.classes.length },
+              { value: "student", label: "个人走势", count: data.students.length || undefined },
+            ]} />
 
             <TabsContent value="class" className="mt-4 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -635,7 +678,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
                     <XAxis dataKey="name" tick={axis} tickLine={false} axisLine={false} interval={0} />
                     <YAxis tick={axis} tickLine={false} axisLine={false} domain={classDomain} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} 分`, ""]} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <PassLine />
                     {data.classes.map((c) => (
                       <Line key={c.id} type="monotone" dataKey={c.name} stroke={colorOfClass(c.name)}
                         strokeWidth={2.4} dot={{ r: 3 }} connectNulls={false} />
@@ -643,6 +686,7 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+              <ChartLegend label="参照" items={[{ label: `及格线 ${PASS_SCORE} 分`, color: C["--destructive"], shape: "dash" }]} />
             </TabsContent>
 
             <TabsContent value="student" className="mt-4 space-y-3">
@@ -662,15 +706,22 @@ function SubjectTrendDialog({ subject, classId, onClose }: {
                       <XAxis dataKey="name" tick={axis} tickLine={false} axisLine={false} interval={0} />
                       <YAxis tick={axis} tickLine={false} axisLine={false} domain={mineDomain} />
                       <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} 分`, ""]} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <PassLine />
                       <Line type="monotone" dataKey="我的成绩" stroke={C["--chart-1"]} strokeWidth={2.4} dot={{ r: 3 }} />
-                      <Line type="monotone" dataKey="班级平均" stroke={C["--warning"]} strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                      <Line type="monotone" dataKey="班级平均" stroke={C["--chart-2"]} strokeWidth={2} strokeDasharray="4 4" dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
                 <EmptyState icon={ClipboardList} title="没有可展示的学生" description="该科目在你当前范围内还没有录入过成绩。" />
               )}
+              {student ? (
+                <ChartLegend items={[
+                  { label: "我的成绩", color: C["--chart-1"], shape: "line" },
+                  { label: "班级平均", color: C["--chart-2"], shape: "dash" },
+                  { label: `及格线 ${PASS_SCORE} 分`, color: C["--destructive"], shape: "dash" },
+                ]} />
+              ) : null}
             </TabsContent>
           </Tabs>
           </div>

@@ -47,11 +47,15 @@
   --input: #d5dae6;
   --ring: #4b8fe0;
 
-  --chart-1: #1663c7;
-  --chart-2: #0f9d8f;
-  --chart-3: #e0a10a;
-  --chart-4: #7a5cff;
-  --chart-5: #e35d6a;
+  /* 指标系列色：只给图表里的"数据线/柱"用。
+     与 --class-*（实体色标）刻意错开色相：实测每个系列色到最近实体色的 CIELab ΔE ≥ 13.7，
+     系列彼此 ΔE ≥ 42.1，对卡片底对比度 ≥ 3.25（非文本图形 3:1 底线）。
+     同一张图里不要混用 chart-* 与 class-*，读者才分得清"这是指标"还是"这是某个班"。 */
+  --chart-1: #114b9c;
+  --chart-2: #0e7490;
+  --chart-3: #b8860b;
+  --chart-4: #4b2fd6;
+  --chart-5: #d1462f;
 
   --sidebar: #ffffff;
   --sidebar-foreground: #101828;
@@ -117,11 +121,12 @@
   --input: #ffffff2b;
   --ring: #6aa6ff;
 
-  --chart-1: #6aa6ff;
-  --chart-2: #34d3bd;
-  --chart-3: #f5c451;
-  --chart-4: #a68bff;
-  --chart-5: #ff8b96;
+  /* 深色同样与实体色标拉开：到最近 --class-* 的 ΔE ≥ 19.1，系列彼此 ≥ 31.3，对 --card 对比度 ≥ 8.87 */
+  --chart-1: #8fc2ff;
+  --chart-2: #5ad6ea;
+  --chart-3: #cdd16a;
+  --chart-4: #d9a4ff;
+  --chart-5: #ff9b7a;
 
   --sidebar: #101725;
   --sidebar-foreground: #e7ecf5;
@@ -221,30 +226,33 @@ body {
 }
 
 /* ── 品牌层：页头色带（浅色主题与深色主题都靠 color-mix 自适应） ── */
+/* 页面标题层：全站唯一的 h1。
+   刻意不再是"第二张卡"——过去它带 border+渐变+阴影，和上方 sticky 顶栏叠成双容器，
+   光框的 padding+border 就 34px；现在只留左侧 3px 色带当定位锚。 */
 .page-head {
   position: relative;
-  overflow: hidden;
   margin-bottom: 1rem;
-  border: 1px solid color-mix(in oklab, var(--brand) 20%, var(--border));
-  border-radius: calc(var(--radius) + 4px);
-  background:
-    linear-gradient(100deg, var(--brand-soft), color-mix(in oklab, var(--brand-soft) 22%, var(--card)) 58%, var(--card)),
-    var(--card);
-  box-shadow: var(--shadow-soft);
-  padding: 0.875rem 1.125rem 0.875rem 1.375rem;
+  padding-left: 0.875rem;
 }
 
 .page-head::before {
   content: "";
   position: absolute;
-  inset-block: 0;
+  inset-block: 0.125rem;
   left: 0;
   width: 3px;
+  border-radius: 9999px;
   background-image: var(--brand-band);
 }
 
 .brand-band {
   background-image: var(--brand-band);
+}
+
+/* 分段控件：高度由这里定，组件内不写 h-*，否则和 shadcn TabsList 的
+   group-data-[orientation=horizontal]:h-9 抢层，窄屏抬不到 44px。 */
+[data-slot="segment-list"] {
+  height: 2.5rem;
 }
 
 .brand-eyebrow {
@@ -571,15 +579,31 @@ html {
     min-height: 2.75rem;
   }
 
+  /* 分段切换：手机端整条铺开、每段都要够手指点 */
+  [data-slot="segment-list"] {
+    height: auto;
+  }
+
+  [data-slot="segment-trigger"] {
+    min-height: 2.75rem;
+  }
+
   /* 卡片里的下拉与输入（如账号角色切换）也是手指点的，同样抬到 44px */
   [data-slot="row-card"] [data-slot="select-trigger"],
   [data-slot="row-card"] input {
     min-height: 2.75rem;
   }
 
-  /* 窄屏页头收紧，把竖向空间留给内容 */
+  /* Field 里的控件同理：手机端 44px，桌面仍按组件默认高度 */
+  [data-slot="field"] input,
+  [data-slot="field"] [data-slot="select-trigger"] {
+    min-height: 2.75rem;
+  }
+
+  /* 窄屏页头：标题交给顶栏承载（h1 转 sr-only），只留辅助信息 */
   .page-head {
-    padding: 0.75rem 0.9375rem 0.8125rem 1.125rem;
+    margin-bottom: 0.75rem;
+    padding-left: 0.75rem;
   }
 
   /* 手机端一律不画滚动条：内容靠手指滑动，轨道只是噪音（桌面仍保留） */
