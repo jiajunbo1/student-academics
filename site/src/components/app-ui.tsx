@@ -56,10 +56,10 @@ export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "跟随系统" },
 ];
 
-/** 手机端底部栏 / 抽屉 / 页头的玻璃质感，两种都能随时切，不留死 */
+/** 页头 / 底部栏 / 抽屉 / 全站卡片的玻璃质感，两种都能随时切，不留死；hint 与缩略示意按同一份配方走 */
 export const GLASS_OPTIONS: { value: GlassMode; label: string; hint: string }[] = [
   { value: "frosted", label: "磨砂玻璃", hint: "均匀虚化" },
-  { value: "liquid", label: "液态玻璃", hint: "边缘折射" },
+  { value: "liquid", label: "液态玻璃", hint: "冷色折射" },
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
@@ -86,6 +86,8 @@ export function ThemeToggle({ className }: { className?: string }) {
         <DropdownMenuRadioGroup value={glass} onValueChange={(v) => setGlass(v as GlassMode)}>
           {GLASS_OPTIONS.map((option) => (
             <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {/* 质感本身就是给卡片和玻璃条看的，菜单里先给一枚同配方的缩略样片，选之前就能比 */}
+              <span className="glass-swatch" data-glass={option.value} aria-hidden="true" />
               <span className="flex-1">{option.label}</span>
               <span className="text-xs text-muted-foreground">{option.hint}</span>
             </DropdownMenuRadioItem>
@@ -348,7 +350,7 @@ export function RowCard({
       data-slot="row-card"
       onClick={onClick}
       className={cn(
-        "card-lift rounded-xl border bg-card p-3.5 shadow-soft",
+        "glass-surface card-lift rounded-xl border bg-card p-3.5 shadow-soft",
         onClick && "cursor-pointer select-none",
         className,
       )}
@@ -739,7 +741,7 @@ export function TableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: nu
 /** KPI 卡骨架：与 StatCard 同尺寸，加载时不塌陷、不跳版 */
 export function CardSkeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("flex h-24 items-start gap-3 rounded-xl border bg-card p-4 shadow-soft", className)}
+    <div className={cn("glass-surface flex h-24 items-start gap-3 rounded-xl border bg-card p-4 shadow-soft", className)}
       aria-busy="true" aria-label="加载中">
       <Skeleton className="size-9 shrink-0 rounded-[calc(var(--radius)-2px)]" />
       <div className="min-w-0 flex-1 space-y-2">

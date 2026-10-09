@@ -92,7 +92,27 @@
 
   /* 动效层：快出慢收的弹性曲线，接近系统抽屉手感 */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
-  --blur-chrome: saturate(180%) blur(16px);
+  --blur-chrome: saturate(150%) blur(18px);
+
+  /* 玻璃质感唯一口径：两种质感必须各有一件「与背后内容无关」的标识，否则在空白页面底上永远看不出差别
+     （旧写法底色取 --background，与页面同色 = 画了块透明补丁，磨砂 86% 与液态 55% 彼此只剩 ΔE 0.6）。
+     磨砂 = 奶白厚玻璃：--card 色相 92% 不透、贴平、无投影、无高光渐变。
+     液态 = 冷色薄玻璃：--card 掺 --primary 的青蓝底 + 顶部镜面高光 + 边缘折射环 + 浮起投影。
+     下面这些值是在真机 Chrome 里把 color-mix 解算出来、再对页面底合成量的（CIE76 ΔE，3 是可辨阈）：
+     浅色 磨砂 [254,254,255] 对页面底 ΔE 3.8、液态 [241,246,252]，两者彼此 ΔE 4.6；
+     深色 磨砂 [18,25,40] 对页面底 ΔE 5.0、液态 [28,41,64] ΔE 14.1，两者彼此 ΔE 9.1。
+     掺色上限是按次要文字（--muted-foreground，导航标签/面包屑就压在玻璃上）定死的：
+     浅色掺到 10% primary 时它的对比度掉到 4.36（低于 AA 4.5），掺 6% 是 4.58，所以浅色只用 6%；
+     深色是往浅里掺，同一位置 5.74 不受影响，才敢用到 16% 换更大的色差。
+     --surface-liquid 是这个青蓝底的「不透版」：玻璃条要透所以要掺 transparent，卡片面背后只有页面底、
+     掺不透反而更稳（AA 更好、冻结列压得住内容），两者共用同一个色相，只写一次。 */
+  --surface-liquid: color-mix(in oklab, var(--card) 94%, var(--primary));
+  --glass-frost: color-mix(in oklab, var(--card) 92%, transparent);
+  --glass-tint: color-mix(in oklab, var(--surface-liquid) 88%, transparent);
+  --glass-tint-panel: color-mix(in oklab, var(--surface-liquid) 96%, transparent);
+  --glass-sheen: rgba(255, 255, 255, 0.55);
+  --glass-float: 0 10px 24px -14px rgba(16, 24, 40, 0.45);
+  --glass-float-up: 0 -10px 24px -14px rgba(16, 24, 40, 0.45);
 
   /* 滚动条唯一口径：8px 细条、轨道透明（玻璃面板下不糊成一块）、拇指色从 muted-foreground 混出来，
      所以浅色深色自动跟随，不需要 .dark 分支。手机端在 max-767 里整体无条（见下面的媒体查询） */
@@ -160,6 +180,15 @@
 
   --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.45), 0 16px 34px -16px rgba(0, 0, 0, 0.8);
   --shadow-sheet: 0 -10px 40px -12px rgba(0, 0, 0, 0.7);
+
+  /* 深色下液态底要更吃得住 --primary（--card 本来就比页面深一档，掺蓝后 ΔE 从 5 抬到 14）；
+     高光只留 0.12：白色 0.5 的高光会把顶部一条刷成浅灰，压在上面的次要文字对比度实测掉到 1.13 */
+  --surface-liquid: color-mix(in oklab, var(--card) 84%, var(--primary));
+  --glass-tint: color-mix(in oklab, var(--surface-liquid) 84%, transparent);
+  --glass-tint-panel: color-mix(in oklab, var(--surface-liquid) 92%, transparent);
+  --glass-sheen: rgba(255, 255, 255, 0.12);
+  --glass-float: 0 10px 24px -14px rgba(0, 0, 0, 0.62);
+  --glass-float-up: 0 -10px 24px -14px rgba(0, 0, 0, 0.62);
 }
 
 @theme inline {
@@ -471,9 +500,11 @@ table th {
   scrollbar-gutter: stable;
 }
 
-/* ── 手机特效层：磨砂玻璃 + 弹性抽屉 + 去掉点击高亮块 ── */
+/* ── 手机特效层：玻璃质感 + 弹性抽屉 + 去掉点击高亮块 ──
+   质感口径全部走上面的 --glass-* 令牌，浅色深色各自成对，不在这里写分支。 */
+/* 磨砂：厚而均匀的奶白玻璃，贴平、不投影、不给高光渐变 */
 .glass-chrome {
-  background: color-mix(in oklab, var(--background) 72%, transparent);
+  background: var(--glass-frost);
   backdrop-filter: var(--blur-chrome);
   -webkit-backdrop-filter: var(--blur-chrome);
   /* 玻璃边缘：内侧一道高光，浅色深色各调一档 */
@@ -484,9 +515,92 @@ table th {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
+/* 抽屉只换底色，虚化强度留给宿主自带的 backdrop-blur-2xl（未分层规则会盖掉工具类，所以这里不写） */
+.glass-panel {
+  background: var(--glass-frost);
+}
+
+/* ── 卡片面：Card / RowCard / CardSkeleton 三个原语都挂 .glass-surface ──
+   改之前桌面上只有页头那一条 44px 玻璃带可见（实测 33,528 / 792,850 px² = 视口的 4.2%），
+   换质感几乎无从感知——色差本身是够的（深色 ΔE 13），是面积不够。
+   卡片背后只有纯色页面底，虚化吃不到任何东西，所以这一面故意不写 backdrop-filter：
+   几十个 Panel 各挂一层模糊是白付的 GPU 成本，换来的视觉是 0。
+   液态靠「冷色底 + 顶部一道高光 + 冷色描边」辨认，磨砂档完全保持现状、零变化。
+   这里也不动 box-shadow —— 它会把 .card-lift:hover 的抬升反馈按 specificity 盖掉。 */
+html[data-glass="liquid"] .glass-surface {
+  /* 改的是 --card 本身：卡内的 sticky 表头、冻结列、斑马纹兜底全读它，一处跟着一起变，
+     否则玻璃卡片上会盖着一块块不透的白补丁 */
+  --card: var(--surface-liquid);
+  background-color: var(--surface-liquid);
+  /* 顶部高光只在最上 6px 收干净：Panel 标题离顶 14px，次要文字（--muted-foreground）就在那儿。
+     按百分比给（旧写法 14%）在高卡片上会摊成一条几十像素的洗白带，
+     实测深色下 400px 面板顶部的次要文字对比度被刷到 4.05，掉出 AA；固定 6px 就只会是一条玻璃边。 */
+  background-image: linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 6px);
+}
+
+/* ── 质感缩略示意：设置菜单里两行选项各一枚 36×20 的「迷你页面」──
+   宿主自己画两道模拟内容（正文色 + 品牌色），::before 是压在上面的玻璃片，
+   于是磨砂看得见「内容被匀化虚掉」，液态看得见「冷色片 + 顶部高光 + 冷边 + 浮起」。
+   虚化与投影半径按示意尺寸等比收窄（真实玻璃条 18px / 24px → 这里 3px / 7px），色相仍读同一份令牌。
+   isolation 让宿主自成 backdrop root：模糊只吃得到自己画的内容条，不吃菜单底。 */
+.glass-swatch {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: calc(var(--radius) * 0.5);
+  isolation: isolate;
+  background:
+    linear-gradient(90deg, var(--muted-foreground), var(--muted-foreground)) 5px 5px / 22px 4px no-repeat,
+    linear-gradient(90deg, var(--primary), var(--primary)) 5px 12px / 13px 4px no-repeat,
+    var(--background);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.glass-swatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--glass-frost);
+  /* 5px：比等比值（18px 玻璃条 / 44px 高 → 20px 芯片应取 8px）刻意收小，
+     但仍是液态那枚的 2.5 倍——芯片要把「均匀虚化 vs 边缘折射」这两句话讲清楚，
+     完全等比会把两道模拟内容糊成一整块，两枚看着反而一样 */
+  backdrop-filter: saturate(150%) blur(5px);
+  -webkit-backdrop-filter: saturate(150%) blur(5px);
+}
+
+.glass-swatch[data-glass="liquid"] {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--border) 55%, var(--primary)),
+    0 3px 7px -3px rgba(16, 24, 40, 0.45);
+}
+
+.glass-swatch[data-glass="liquid"]::before {
+  background:
+    linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 40%),
+    var(--glass-tint-panel);
+  backdrop-filter: saturate(190%) blur(2px);
+  -webkit-backdrop-filter: saturate(190%) blur(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.dark .glass-swatch[data-glass="liquid"] {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--border) 55%, var(--primary)),
+    0 3px 7px -3px rgba(0, 0, 0, 0.62);
+}
+
+.dark .glass-swatch[data-glass="liquid"]::before {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
 @supports not (backdrop-filter: blur(1px)) {
-  .glass-chrome {
-    background: var(--background);
+  .glass-chrome,
+  .glass-panel {
+    background: var(--card);
     box-shadow: none;
   }
 
@@ -494,13 +608,20 @@ table th {
   html[data-glass="liquid"] .glass-panel::before {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: var(--background);
+    background: var(--card);
     box-shadow: none;
   }
 
   html[data-glass="liquid"] .glass-chrome::after,
   html[data-glass="liquid"] .glass-panel::after {
     display: none;
+  }
+
+  /* 不支持虚化时磨砂示意退化成一块实色奶白板（specification 比液态那条低，只影响磨砂这一枚） */
+  .glass-swatch::before {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--card);
   }
 }
 
@@ -517,9 +638,15 @@ html[data-glass="liquid"] .glass-panel {
   -webkit-backdrop-filter: none;
 }
 
-/* 抽屉的投影要留在外壳上（内层伪元素会被 overflow-hidden 裁掉） */
+/* 液态靠「浮起」辨认：外壳投影给出一条与背景内容无关的边界，磨砂始终贴平、无投影。
+   投影留在宿主上（内层伪元素会被抽屉的 overflow-hidden 裁掉）。 */
 html[data-glass="liquid"] .glass-chrome {
-  box-shadow: none;
+  box-shadow: var(--glass-float);
+}
+
+/* 底部导航贴的是屏幕下沿，投影必须朝上才看得见，否则「浮起」这条线索在最主要的玻璃面上会失效 */
+html[data-glass="liquid"] nav.glass-chrome {
+  box-shadow: var(--glass-float-up);
 }
 
 html[data-glass="liquid"] .glass-chrome::before,
@@ -529,15 +656,18 @@ html[data-glass="liquid"] .glass-panel::before {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: color-mix(in oklab, var(--background) 58%, transparent);
-  backdrop-filter: saturate(200%) blur(12px);
-  -webkit-backdrop-filter: saturate(200%) blur(12px);
+  /* 冷色玻璃底 + 顶部一条镜面高光：这两样都不依赖玻璃背后有什么内容 */
+  background:
+    linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 22%),
+    var(--glass-tint);
+  backdrop-filter: saturate(190%) blur(14px);
+  -webkit-backdrop-filter: saturate(190%) blur(14px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 0 20px -6px rgba(255, 255, 255, 0.3);
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 0 22px -8px rgba(255, 255, 255, 0.28);
 }
 
-/* 边缘透镜：只有外圈 0.625rem 叠一层更重的模糊，看着像玻璃厚度把背景折了进来 */
+/* 边缘透镜：只有外圈叠一层更重的模糊，看着像玻璃厚度把背景折了进来 */
 html[data-glass="liquid"] .glass-chrome::after,
 html[data-glass="liquid"] .glass-panel::after {
   content: "";
@@ -557,28 +687,25 @@ html[data-glass="liquid"] .glass-panel::after {
 
 html.dark[data-glass="liquid"] .glass-chrome::before,
 html.dark[data-glass="liquid"] .glass-panel::before {
-  background: color-mix(in oklab, var(--background) 60%, transparent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 0 20px -6px rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 0 22px -8px rgba(255, 255, 255, 0.1);
 }
 
 /* 状态条很薄，折射环收窄、饱和度压低，否则整条会被染成一块色带 */
 html[data-glass="liquid"] .glass-chrome::after {
-  padding: 0.375rem;
+  padding: 0.5rem;
   backdrop-filter: saturate(170%) brightness(1.04) blur(22px);
   -webkit-backdrop-filter: saturate(170%) brightness(1.04) blur(22px);
 }
 
 /* 抽屉里是表单，底色要比状态条更实，否则后面的卡片会透过字段晃眼 */
 html[data-glass="liquid"] .glass-panel::before {
-  background: color-mix(in oklab, var(--background) 70%, transparent);
-  backdrop-filter: saturate(200%) blur(20px);
-  -webkit-backdrop-filter: saturate(200%) blur(20px);
-}
-
-html.dark[data-glass="liquid"] .glass-panel::before {
-  background: color-mix(in oklab, var(--background) 64%, transparent);
+  background:
+    linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 12%),
+    var(--glass-tint-panel);
+  backdrop-filter: saturate(190%) blur(22px);
+  -webkit-backdrop-filter: saturate(190%) blur(22px);
 }
 
 html[data-glass="liquid"] .glass-panel::after {
