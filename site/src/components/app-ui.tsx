@@ -58,12 +58,12 @@ export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 
 /** 页头 / 底部栏 / 抽屉 / 全站卡片的玻璃质感，两种都能随时切，不留死；hint 与缩略示意按同一份配方走 */
 export const GLASS_OPTIONS: { value: GlassMode; label: string; hint: string }[] = [
-  { value: "frosted", label: "磨砂玻璃", hint: "均匀虚化" },
-  { value: "liquid", label: "液态玻璃", hint: "冷色折射" },
+  { value: "frosted", label: "磨砂玻璃", hint: "厚·雾化" },
+  { value: "liquid", label: "液态玻璃", hint: "薄·透视" },
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { mode, setMode, glass, setGlass } = useTheme();
+  const { mode, setMode, glass, setGlass, transparency, setGlassTransparency } = useTheme();
   const Icon = mode === "system" ? MonitorSmartphone : mode === "dark" ? Moon : Sun;
   return (
     <DropdownMenu>
@@ -93,6 +93,26 @@ export function ThemeToggle({ className }: { className?: string }) {
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {/* 透明度滑块：0–100 是用户刻度，写进 CSS 的是它的补数 α（磨砂默认 8，液态 42 / 深色 36）。
+            拖动时别把指针事件递给菜单，否则菜单会跟着做悬停态；方向键也自己吃掉，不然会被菜单导航抢走。 */}
+        <div className="px-2 pb-1 pt-1.5" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium">透明度</span>
+            <span className="tabular-nums text-muted-foreground">{transparency}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={2}
+            value={transparency}
+            onChange={(e) => setGlassTransparency(Number(e.target.value))}
+            onKeyDown={(e) => e.stopPropagation()}
+            aria-label={`玻璃透明度，当前${glass === "frosted" ? "磨砂" : "液态"}档`}
+            className="mt-1.5 w-full cursor-pointer accent-[var(--primary)]"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">0 是实色板；拉满后卡面只剩虚化，弹窗保留一档保底底色</p>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

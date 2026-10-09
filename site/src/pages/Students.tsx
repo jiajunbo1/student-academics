@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -319,7 +318,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       </Panel>
 
       <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto overscroll-y-contain sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing?.id ? "编辑学生" : "添加学生"}</DialogTitle>
             <DialogDescription>标有 * 的字段为必填项，学号在校内应唯一。</DialogDescription>
@@ -352,20 +351,21 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>
-        <SheetContent side="right" className="app-scroll w-full p-0 sm:max-w-xl">
+      {/* 学生详情：桌面居中弹窗、窄屏自动走 DialogContent 的底部抽屉分支（原来是右侧全高抽屉） */}
+      <Dialog open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>
+        <DialogContent className="sm:max-w-lg">
           {detail && (
             <>
-              <SheetHeader className="border-b">
-                <SheetTitle>
+              <DialogHeader>
+                <DialogTitle>
                   <span>{detail.student.name} <span className="ml-1 font-mono text-sm font-normal text-muted-foreground">{detail.student.student_no}</span></span>
-                </SheetTitle>
-                <SheetDescription>
+                </DialogTitle>
+                <DialogDescription>
                   {detail.student.className} · {detail.student.gender} · {detail.student.status}
                   {detail.student.guardian_name ? ` · 家长：${detail.student.guardian_name}${detail.student.guardian_phone ? ` ${detail.student.guardian_phone}` : ""}` : ""}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="space-y-4 p-4">
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
                 <DetailSection title="成绩记录" count={detail.scores.length}>
                   {detail.scores.slice(0, 12).map((s) => (
                     <Row key={s.id}>
@@ -375,12 +375,12 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                   ))}
                   {!detail.scores.length && <Muted>暂无成绩</Muted>}
                 </DetailSection>
-                <p className="pb-2 text-center text-xs text-muted-foreground">成绩展示 {Math.min(detail.scores.length, 12)} / {detail.scores.length} 条，完整记录见「成绩管理」</p>
+                <p className="text-center text-xs text-muted-foreground">成绩展示 {Math.min(detail.scores.length, 12)} / {detail.scores.length} 条，完整记录见「成绩管理」</p>
               </div>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <ImportDialog
         open={importing}

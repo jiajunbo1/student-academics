@@ -40,7 +40,8 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        // 磨砂布而不是黑布：色相、α、虚化都在 --scrim / --scrim-blur 里定（见 globals.css 甲）
+        "glass-scrim fixed inset-0 z-50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className
       )}
       {...props}
@@ -66,7 +67,8 @@ function DialogContent({
           data-slot="dialog-content"
           className={cn(
             // 外壳只管定位与玻璃质感，滚动交给内层，伪元素折射层才不会被滚走
-            "glass-panel fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[var(--radius-sheet)] border-t bg-background/92 shadow-sheet backdrop-blur-2xl duration-300 outline-none",
+            // bg-background/92 backdrop-blur-2xl 已经收进 .glass-panel（两档共用一条口径，见 globals.css 乙）
+            "glass-panel fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[var(--radius-sheet)] border-t shadow-sheet duration-300 outline-none",
             "data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-full data-[state=open]:fade-in-0",
             "data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-full data-[state=closed]:fade-out-0"
           )}
@@ -98,12 +100,17 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          // 桌面弹窗以前是 bg-background 一块实色板（实测面内可辨信号 0.00），现在和抽屉、卡片同一条玻璃口径。
+          // 外壳不滚：玻璃是伪元素画的，跟着内容一起滚就会从顶上滑走，所以滚动交给内层、max-h 也收进原语
+          //（以前 11 个弹窗只有 1 个自己写了 max-h + overflow，其余在矮屏上根本滚不到底）。
+          "glass-panel fixed top-[50%] left-[50%] z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col overflow-hidden rounded-lg border shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
           className
         )}
         {...props}
       >
-        {children}
+        <div data-slot="dialog-body" className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain p-6">
+          {children}
+        </div>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

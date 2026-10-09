@@ -35,7 +35,10 @@
   --secondary: #eaeef7;
   --secondary-foreground: #1f2937;
   --muted: #eef1f8;
-  --muted-foreground: #667085;
+  /* 次要文字（浅色）：旧值 #667085 在 --background 上只有 4.60，等于没有余量——
+     页面级次要文字是直接坐在柔光层上的，柔光斑一压就掉到 3.77（AA 4.5，实测早就违规）。
+     抬到 #4f5869 后：底 6.62 / 白卡 7.16 / 新柔光峰 5.00，柔光层才有加幅的空间。 */
+  --muted-foreground: #4f5869;
   --accent: #e6eefb;
   --accent-foreground: #1663c7;
   --destructive: #d92d20;
@@ -90,29 +93,76 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --sheet-pad-b: calc(1rem + var(--safe-bottom));
 
+  /* 弹层遮罩：「黑布」的反面不是「淡一点的黑布」，是「磨砂布」。
+     旧写法 bg-black/50 是纯黑且完全没有 backdrop-filter，实测把页面柔光信号从 ΔE 12.1 压到 6.6（-46%），
+     弹层背后就只剩一层黑——所以先改遮罩，再谈面板透不透。
+     换成主题同相的深蓝 + 更低 α + 一层虚化：背后的形状和色斑留着，细节没有。
+     写成 8 位十六进制而不是 color-mix，是为了不进那条降级链（老引擎直接拿到同一层遮罩）。 */
+  --scrim: #0b1f3a38;
+  --scrim-blur: blur(12px) saturate(140%);
+
   /* 动效层：快出慢收的弹性曲线，接近系统抽屉手感 */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --blur-chrome: saturate(150%) blur(18px);
 
-  /* 玻璃质感唯一口径：两种质感必须各有一件「与背后内容无关」的标识，否则在空白页面底上永远看不出差别
-     （旧写法底色取 --background，与页面同色 = 画了块透明补丁，磨砂 86% 与液态 55% 彼此只剩 ΔE 0.6）。
-     磨砂 = 奶白厚玻璃：--card 色相 92% 不透、贴平、无投影、无高光渐变。
-     液态 = 冷色薄玻璃：--card 掺 --primary 的青蓝底 + 顶部镜面高光 + 边缘折射环 + 浮起投影。
-     下面这些值是在真机 Chrome 里把 color-mix 解算出来、再对页面底合成量的（CIE76 ΔE，3 是可辨阈）：
-     浅色 磨砂 [254,254,255] 对页面底 ΔE 3.8、液态 [241,246,252]，两者彼此 ΔE 4.6；
-     深色 磨砂 [18,25,40] 对页面底 ΔE 5.0、液态 [28,41,64] ΔE 14.1，两者彼此 ΔE 9.1。
-     掺色上限是按次要文字（--muted-foreground，导航标签/面包屑就压在玻璃上）定死的：
-     浅色掺到 10% primary 时它的对比度掉到 4.36（低于 AA 4.5），掺 6% 是 4.58，所以浅色只用 6%；
-     深色是往浅里掺，同一位置 5.74 不受影响，才敢用到 16% 换更大的色差。
-     --surface-liquid 是这个青蓝底的「不透版」：玻璃条要透所以要掺 transparent，卡片面背后只有页面底、
-     掺不透反而更稳（AA 更好、冻结列压得住内容），两者共用同一个色相，只写一次。 */
+  /* 玻璃质感唯一口径：「透」只有两个真变量 —— α（真透光率）和背后有没有东西可透，缺一个都看不出差别。
+     上一版只差 4–8 个百分点（92% vs 88/84%）而且卡片两面都是 100%，纯色页面底上 α 再低也只等价于"换个颜色"。
+     这一版把两层都真拉开，并按面分三档厚度（同一份 --glass-liq-a，滑块一起带动）：
+     · 磨砂 = 厚玻璃：92% + --blur-chrome 的 18px 重虚化，背后一切都被匀成奶白（这三档一视同仁）；
+     · 液态 = 薄玻璃：卡片 --glass-tint（浅 58% / 深 64%）＋ 6px 轻虚化＋边缘折射环＋浮起投影，
+       柔光层的色斑直接穿过卡面；弹层 --glass-tint-modal 比卡片厚一档（0.11+0.89a），因为里面是表单。
+     实测可辨差（CIE76 ΔE，3 为阈值）：两档卡片面彼此 5.5（深）/ 4.7（浅）、页头玻璃条 8.8 / 8.1；
+     卡片压在柔光斑上 7.0–7.7（深）/ 4.1–6.1（浅），弹层面内 4.8–4.9（深）/ 3.1–4.4（浅），
+     磨砂卡对同样两个位置是 0（厚玻璃挡死，这是这档的身份，不是缺陷）。
+     透明度滑块（设置菜单，0–100）实时改写 --glass-frost-a / --glass-liq-a（写进去的是 100 − 读数），
+     上面两行是两档各自的默认值。
+     --surface-liquid 仍是那个青蓝底的「不透版」，掺色上限按次要文字（--muted-foreground）定死：
+     浅色掺 10% primary 时它的对比度掉到 4.36（低于 AA 4.5）、6% 是 4.58，所以浅色只用 6%；
+     深色是往浅里掺不受影响，才敢用到 16%。贴在薄玻璃上的字另有一层补偿，见 --muted-foreground 那条单独规则。 */
+  --glass-frost-a: 92%;
+  --glass-liq-a: 58%;
   --surface-liquid: color-mix(in oklab, var(--card) 94%, var(--primary));
-  --glass-frost: color-mix(in oklab, var(--card) 92%, transparent);
-  --glass-tint: color-mix(in oklab, var(--surface-liquid) 88%, transparent);
-  --glass-tint-panel: color-mix(in oklab, var(--surface-liquid) 96%, transparent);
+  --glass-frost: color-mix(in oklab, var(--card) var(--glass-frost-a), transparent);
+  --glass-tint: color-mix(in oklab, var(--surface-liquid) var(--glass-liq-a), transparent);
+  /* 弹层（对话框 / 抽屉）里是表单，必须比卡片厚一档才不晃眼，但旧口径掺回 38% 得到 α=0.777，
+     实测弹层面内可辨信号只剩 ΔE 1.62（可辨阈 3）——这就是"一点不透"的第二处来源：面板自己挡掉了 78% 的背景。
+     改成只掺回 11% 不透版：α = 0.11 + 0.89·a → 深色 0.68 / 浅色 0.63，配合新遮罩后弹层面内 ΔE 抬到 4.4–4.9。
+     它读的是 --glass-liq-a，所以设置菜单那枚透明度滑块（0–100，α = 100 − 读数）对卡片面和弹层面同时生效，不用另加一个旋钮。
+     max() 那档 30% 是弹层保底：滑块拉到 100（α→0）时卡片本该完全化掉，但弹窗里是表单，实测浅色档
+     次要文字只剩 4.20（掉出 AA 4.5）、弹窗边界 ΔE 只剩 1.84（看不出那儿有个弹窗）。保底后 t=100 回到 4.8 / 5.6，
+     而默认档算出来仍是 11% + 0.89×64% = 67.96%，一个像素没动。
+     --surface-liquid 写在第一参数位是给构建兜底的（降级取首个参数 → 老引擎拿到不透的实色面板，绝不会是透明板）。 */
+  --glass-tint-modal: color-mix(
+    in oklab,
+    var(--surface-liquid) max(30%, calc(11% + 0.89 * var(--glass-liq-a))),
+    transparent
+  );
+  /* 磨砂档的弹层保底：同一个 30%，只是这档的面色底是 --card（不是冷色液态底）。
+     实测浅色档拉到透明度 85 / 100 时，无保底的弹层次要文字 4.40 / 3.85 掉出 AA，弹窗边界 ΔE 0.67 / 0（看不见有个弹窗）；
+     保底后回到 4.8 一档、边界 5.1，卡片面不吃保底（卡片越透越好看）。 */
+  --glass-frost-modal: color-mix(in oklab, var(--card) max(30%, var(--glass-frost-a)), transparent);
+  /* --muted-foreground 的"不掺版"：薄玻璃上的文字补偿要引用原值，
+     但 --muted-foreground 里直接 var(--muted-foreground) 是自引用循环（整条作废，
+     实测卡片内读出来是空字符串），必须先在这里存一份底 */
+  --muted-base: var(--muted-foreground);
   --glass-sheen: rgba(255, 255, 255, 0.55);
   --glass-float: 0 10px 24px -14px rgba(16, 24, 40, 0.45);
   --glass-float-up: 0 -10px 24px -14px rgba(16, 24, 40, 0.45);
+  --blur-liquid: saturate(180%) blur(6px);
+
+  /* 柔光层（见下面的 body::before）：登录页那两团手绘柔光的站内版 + 一层极淡点阵。
+     它是玻璃唯一"透得出来"的东西，所以强度按「穿过面板后还剩多少」定，不是按好不好看定：
+     旧档 14/12% 穿过弹层只剩 ΔE 2.1（低于可辨阈 3，等于不透），抬到 20/16% 后弹层面内 4.4 / 卡片面 6.1。
+     再往上就撞文字底线：30% 时浅色卡片上的次要文字对比度掉到 3.98，靠补偿才拉回 5.3，不值当。
+     点阵只是页面自己的纹理，不承担"透"：穿卡片面剩 ΔE 1.7、穿 6px 虚化的玻璃条剩 0.16、磨砂档归零。
+     留意色值顺序：transparent 放第一位。构建会把 color-mix 降级成「首个参数」当兜底（见 --sb-thumb 处的说明），
+     这样老引擎拿到的就是 none/透明，页面退回纯色而不是画出一块实心品牌色。 */
+  --wash-a: color-mix(in oklab, transparent, var(--primary) 20%);
+  --wash-b: color-mix(in oklab, transparent, var(--chart-2) 16%);
+  --wash-dot: color-mix(in oklab, transparent, var(--foreground) 6%);
+  /* 页面底的明度坡（深色用得上，浅色肉眼看不出所以给 0）：顶部压暗、底部提亮一档，
+     让"玻璃在不同高度透出来的东西不一样"，比改 --background 色值安全（改色值会连带动画卡片层级）。 */
+  --wash-ramp: transparent, transparent;
 
   /* 滚动条唯一口径：8px 细条、轨道透明（玻璃面板下不糊成一块）、拇指色从 muted-foreground 混出来，
      所以浅色深色自动跟随，不需要 .dark 分支。手机端在 max-767 里整体无条（见下面的媒体查询） */
@@ -135,7 +185,9 @@
   --secondary: #1b2434;
   --secondary-foreground: #dbe2ee;
   --muted: #1b2434;
-  --muted-foreground: #98a3b8;
+  /* 次要文字（深色）抬一档 #98a3b8 → #a2acc0：柔光峰到 26% 后，直接坐在斑上的页面级次要文字只剩 4.65，
+     余量太薄（合成模型本身有误差）。抬完最坏点 5.06，底上 7.43 → 8.27 也更合深底浅字的读感。 */
+  --muted-foreground: #a2acc0;
   --accent: #1e2c44;
   --accent-foreground: #bfd7ff;
   --destructive: #ff6b6b;
@@ -182,13 +234,24 @@
   --shadow-sheet: 0 -10px 40px -12px rgba(0, 0, 0, 0.7);
 
   /* 深色下液态底要更吃得住 --primary（--card 本来就比页面深一档，掺蓝后 ΔE 从 5 抬到 14）；
-     高光只留 0.12：白色 0.5 的高光会把顶部一条刷成浅灰，压在上面的次要文字对比度实测掉到 1.13 */
+     高光只留 0.12：白色 0.5 的高光会把顶部一条刷成浅灰，压在上面的次要文字对比度实测掉到 1.13。
+     液态 α 深色默认 64%（透明度读数 36）：深色页面底近黑，玻璃再薄就吃不出那层冷色。 */
   --surface-liquid: color-mix(in oklab, var(--card) 84%, var(--primary));
-  --glass-tint: color-mix(in oklab, var(--surface-liquid) 84%, transparent);
-  --glass-tint-panel: color-mix(in oklab, var(--surface-liquid) 92%, transparent);
+  --glass-liq-a: 64%;
   --glass-sheen: rgba(255, 255, 255, 0.12);
   --glass-float: 0 10px 24px -14px rgba(0, 0, 0, 0.62);
   --glass-float-up: 0 -10px 24px -14px rgba(0, 0, 0, 0.62);
+
+  /* 深色遮罩比浅色压得住（近黑底上 32% 已经抹得掉细节），色相仍取蓝，不再是纯黑。 */
+  --scrim: #050a1452;
+
+  /* 柔光层深色版：近黑底上色斑要更亮一档才穿过面板看得见（26/22%），点阵改用前景白 7%。顺序同浅色。
+     深色还要一条纵向明度坡（丁）：顶压暗、底提亮，同一块玻璃在屏幕上下两端透出来的底色不同，
+     "透"就有了参照物。它只加在柔光层里，不动 --background 色值，所以卡片浮起的层级（dE 底/卡 5.43）没受影响。 */
+  --wash-a: color-mix(in oklab, transparent, var(--primary) 26%);
+  --wash-b: color-mix(in oklab, transparent, var(--chart-2) 22%);
+  --wash-dot: color-mix(in oklab, transparent, var(--foreground) 7%);
+  --wash-ramp: #090e1866, #16203a8c;
 }
 
 @theme inline {
@@ -254,6 +317,27 @@ body {
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
   transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ── 页面柔光层：纯色页面底让「透」无从体现（α 只等价于换个颜色），给玻璃背后铺柔光斑＋明度坡＋极淡点阵。
+   这一层现在是 body 的 ::before 且 position: fixed，三个理由：
+   · 视口锚定：页面滚动时柔光不动、卡片从它上方滑过，"透"才有参照物；
+   · 旧写法用 background-attachment: fixed 挂在 App 壳上，iOS Safari 对它是直接忽略的（手机上柔光跟着内容滚走，等于没有）；
+   · portal 到 body 的弹层（对话框 / 抽屉 / toast）背后同样有东西可透，不用每个壳再挂一遍。
+   代价：App 那三个壳上的 bg-background 必须一起去掉，否则它们会把这一整块盖住。
+   图层从最上面那张往下写：两团斑 → 点阵 → 明度坡（顺序同旧版，别以为坡在最下就随便放）。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(58% 44% at 12% 4%, var(--wash-a), transparent 64%),
+    radial-gradient(52% 40% at 92% 96%, var(--wash-b), transparent 62%),
+    radial-gradient(var(--wash-dot) 1.1px, transparent 1.1px),
+    linear-gradient(180deg, var(--wash-ramp));
+  background-size: auto, auto, 22px 22px, auto;
 }
 
 ::selection {
@@ -515,34 +599,56 @@ table th {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-/* 抽屉只换底色，虚化强度留给宿主自带的 backdrop-blur-2xl（未分层规则会盖掉工具类，所以这里不写） */
+/* 遮罩：一块磨砂布，不是一块黑布。α、色相、虚化全部读令牌，深浅两档各一组（见 --scrim）。
+   旧写法 bg-black/50 既没有 backdrop-filter 又是纯黑，实测把页面柔光信号从 ΔE 12.1 砍到 6.6，
+   弹层再薄也只是"压在一层黑上"——所以甲这一项的收益比面板 α 还靠前。 */
+.glass-scrim {
+  background: var(--scrim);
+  backdrop-filter: var(--scrim-blur);
+  -webkit-backdrop-filter: var(--scrim-blur);
+}
+
+/* 弹层面板：磨砂档也是厚玻璃（92%）+ 18px 重虚化，和页头同一档，
+   所以虚化写在这里而不是靠宿主自带的工具类（原来只有移动抽屉带了 backdrop-blur-2xl，桌面弹窗一层都没有）。
+   液态档在下面把 background 换掉、虚化交给 ::before。
+   读 --glass-frost-modal 而不是 --glass-frost：弹层有 30% α 保底（同 --glass-tint-modal 那句），
+   否则浅色档把透明度拉到 85+ 时弹层次要文字实测 4.40 → 3.85，掉出 AA 且弹窗边界 ΔE 归零。
+   默认 92% 落在 max() 外侧，这一档现在一个像素没动。 */
 .glass-panel {
-  background: var(--glass-frost);
+  background: var(--glass-frost-modal);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
 }
 
 /* ── 卡片面：Card / RowCard / CardSkeleton 三个原语都挂 .glass-surface ──
-   改之前桌面上只有页头那一条 44px 玻璃带可见（实测 33,528 / 792,850 px² = 视口的 4.2%），
-   换质感几乎无从感知——色差本身是够的（深色 ΔE 13），是面积不够。
-   卡片背后只有纯色页面底，虚化吃不到任何东西，所以这一面故意不写 backdrop-filter：
-   几十个 Panel 各挂一层模糊是白付的 GPU 成本，换来的视觉是 0。
-   液态靠「冷色底 + 顶部一道高光 + 冷色描边」辨认，磨砂档完全保持现状、零变化。
-   这里也不动 box-shadow —— 它会把 .card-lift:hover 的抬升反馈按 specificity 盖掉。 */
+   磨砂档完全不进这条规则：卡片保持不透明奶白，"厚玻璃挡光"就是它的标识。
+   液态档是"薄玻璃"：真透光，柔光层的色斑直接穿过卡片（深 7.0–7.7 / 浅 4.1–6.1，点阵只剩 1.7–3.0 不算判据），
+   这一面故意不写 backdrop-filter——卡面上的东西保持原样、不糊；几十个 Panel 各挂一层模糊也是白付的 GPU 成本。
+   重声明的 --card 是"这块玻璃压在页面底上的实色翻版"：卡里的 sticky 表头、冻结列、兜底层读它，
+   滚动时内容才不从表头底下透出来——透明的是脸，不透明的才是骨。 */
 html[data-glass="liquid"] .glass-surface {
-  /* 改的是 --card 本身：卡内的 sticky 表头、冻结列、斑马纹兜底全读它，一处跟着一起变，
-     否则玻璃卡片上会盖着一块块不透的白补丁 */
-  --card: var(--surface-liquid);
-  background-color: var(--surface-liquid);
+  --card: color-mix(in oklab, var(--surface-liquid) var(--glass-liq-a), var(--background));
+  background-color: var(--glass-tint);
   /* 顶部高光只在最上 6px 收干净：Panel 标题离顶 14px，次要文字（--muted-foreground）就在那儿。
      按百分比给（旧写法 14%）在高卡片上会摊成一条几十像素的洗白带，
      实测深色下 400px 面板顶部的次要文字对比度被刷到 4.05，掉出 AA；固定 6px 就只会是一条玻璃边。 */
   background-image: linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 6px);
 }
 
+/* 薄玻璃上的次要文字补偿：α 掉到 58/64% 后玻璃会压在柔光斑上（比页面底深一档），
+   浅色档最坏落点（卡片压在右下柔光斑上）--muted-foreground 只有 4.03，掉出 AA 4.5；
+   掺 16% --foreground 后回到 5.05（深色同点 5.29 → 6.02）。磨砂档文字一个像素都不动。
+   两个写法都不能省：① 引用的必须是 --muted-base 而不是 --muted-foreground 自身——
+   自引用是循环，整条声明作废（实测卡片里读出来是空串，文字会掉回继承色）；
+   ② --foreground 写在第一位是给构建兜底的（降级取首个参数，同 --wash-*）。 */
+html[data-glass="liquid"] :is(.glass-chrome, .glass-panel, .glass-surface) {
+  --muted-foreground: color-mix(in oklab, var(--foreground) 16%, var(--muted-base));
+}
+
 /* ── 质感缩略示意：设置菜单里两行选项各一枚 36×20 的「迷你页面」──
    宿主自己画两道模拟内容（正文色 + 品牌色），::before 是压在上面的玻璃片，
-   于是磨砂看得见「内容被匀化虚掉」，液态看得见「冷色片 + 顶部高光 + 冷边 + 浮起」。
-   虚化与投影半径按示意尺寸等比收窄（真实玻璃条 18px / 24px → 这里 3px / 7px），色相仍读同一份令牌。
-   isolation 让宿主自成 backdrop root：模糊只吃得到自己画的内容条，不吃菜单底。 */
+   于是磨砂看得见「内容被匀化虚掉」，液态看得见「两道内容条几乎原样透出 + 冷色片 + 顶部高光 + 冷边 + 浮起」。
+   虚化与投影半径按示意尺寸等比收窄（真实玻璃条 18px/6px → 这里 2px 是液态那枚），色相仍读同一份令牌。 */
 .glass-swatch {
   position: relative;
   display: block;
@@ -579,9 +685,10 @@ html[data-glass="liquid"] .glass-surface {
 }
 
 .glass-swatch[data-glass="liquid"]::before {
+  /* 薄玻璃片读的就是 chrome 那口 --glass-tint（真透），两道内容条在菜单里就直接看得见 */
   background:
     linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 40%),
-    var(--glass-tint-panel);
+    var(--glass-tint);
   backdrop-filter: saturate(190%) blur(2px);
   -webkit-backdrop-filter: saturate(190%) blur(2px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
@@ -626,7 +733,9 @@ html[data-glass="liquid"] .glass-surface {
 }
 
 /* ── 液态玻璃（html[data-glass="liquid"]）──
-   Chromium 实测只解析不执行 backdrop-filter: url() 的真折射，所以这里用
+   薄的正身就是这三件事：真透光（--glass-tint，α 默认 58/64%）、轻虚化（--blur-liquid 6px，
+   背后内容只是略微发糊，和磨砂的 18px 是两个量级）、边缘重折射环。
+   Chromium 实测只解析不执行 backdrop-filter: url() 的真折射，所以折射用
    「整块轻折射 + 边缘重折射环 + 内侧高光」三层近似，Safari / Chrome 表现一致。 */
 /* 宿主自己就是定位元素（fixed / sticky），这里不能再写 position，
    未分层规则会盖掉 Tailwind 的 fixed 工具类。 */
@@ -656,12 +765,13 @@ html[data-glass="liquid"] .glass-panel::before {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  /* 冷色玻璃底 + 顶部一条镜面高光：这两样都不依赖玻璃背后有什么内容 */
+  /* 冷色玻璃底 + 顶部一条镜面高光：这两样都不依赖玻璃背后有什么内容。
+     虚化走 --blur-liquid（6px）：薄玻璃的"透"必须看得见内容轮廓，磨砂那 18px 会把一切匀平。 */
   background:
     linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 22%),
     var(--glass-tint);
-  backdrop-filter: saturate(190%) blur(14px);
-  -webkit-backdrop-filter: saturate(190%) blur(14px);
+  backdrop-filter: var(--blur-liquid);
+  -webkit-backdrop-filter: var(--blur-liquid);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
     inset 0 0 22px -8px rgba(255, 255, 255, 0.28);
@@ -699,11 +809,13 @@ html[data-glass="liquid"] .glass-chrome::after {
   -webkit-backdrop-filter: saturate(170%) brightness(1.04) blur(22px);
 }
 
-/* 抽屉里是表单，底色要比状态条更实，否则后面的卡片会透过字段晃眼 */
+/* 弹层里是表单，底色要比状态条和卡片更实一档，否则后面的卡片会透过字段晃眼；
+   但旧口径实到 α=0.777，实测面内可辨信号只剩 ΔE 1.62（阈值 3）——桌面弹窗更是 100% 不透（0.00）。
+   现在读 --glass-tint-modal（α=0.11+0.89a → 深 0.68 / 浅 0.63），配上新遮罩后面内 ΔE 4.4–4.9。 */
 html[data-glass="liquid"] .glass-panel::before {
   background:
     linear-gradient(180deg, var(--glass-sheen), rgba(255, 255, 255, 0) 12%),
-    var(--glass-tint-panel);
+    var(--glass-tint-modal);
   backdrop-filter: saturate(190%) blur(22px);
   -webkit-backdrop-filter: saturate(190%) blur(22px);
 }
@@ -720,13 +832,8 @@ html {
 }
 
 @media (max-width: 767px) {
-  /* 遮罩虚化：抽屉升起时后面的内容糊成一层，层次更像系统弹层 */
-  [data-slot="dialog-overlay"] {
-    background: color-mix(in oklab, var(--foreground) 42%, transparent);
-    backdrop-filter: blur(6px) saturate(120%);
-    -webkit-backdrop-filter: blur(6px) saturate(120%);
-  }
-
+  /* 这里原来有一条窄屏专用遮罩（--foreground 42% + blur 6px）：它比桌面那层还晚一步，
+     而且在深色档是"一层 42% 的近白纱"，方向反了。遮罩现在统一走 .glass-scrim 令牌，深浅各一组、全视口一条。 */
   [data-slot="dialog-content"] {
     animation-timing-function: var(--ease-spring);
     box-shadow: var(--shadow-sheet), inset 0 1px 0 rgba(255, 255, 255, 0.5);

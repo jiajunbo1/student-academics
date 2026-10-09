@@ -143,7 +143,7 @@ export default function App() {
 
   if (authState === "checking") {
     return (
-      <div className="min-h-dvh bg-background p-4 md:p-6">
+      <div className="min-h-dvh p-4 md:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <Skeleton className="h-9 w-48" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -159,7 +159,7 @@ export default function App() {
 
   if (authState === "error") {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-background p-6">
+      <div className="flex min-h-dvh items-center justify-center p-6">
         <div className="w-full max-w-md rounded-2xl border bg-card p-8 text-center shadow-soft">
           <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-destructive/10 text-destructive">
             <AlertTriangle className="size-6" />
@@ -183,7 +183,8 @@ export default function App() {
   const current = nav.find((n) => n.key === tab) ?? nav[0];
 
   return (
-    <div className="min-h-dvh bg-background">
+    // 柔光层现在挂在 body::before（视口锚定，见 globals.css）；这里再写 bg-background 会把它整块盖掉
+    <div className="min-h-dvh">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex items-center gap-2.5 px-5 py-5">
           <span className="brand-band grid size-9 place-items-center rounded-xl text-white shadow-soft">
