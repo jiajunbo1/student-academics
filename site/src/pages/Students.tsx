@@ -265,7 +265,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
                 );
               })}
             </CardList>
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden md:block">
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
@@ -319,7 +319,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       </Panel>
 
       <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto overscroll-y-contain sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing?.id ? "编辑学生" : "添加学生"}</DialogTitle>
             <DialogDescription>标有 * 的字段为必填项，学号在校内应唯一。</DialogDescription>
@@ -353,7 +353,7 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
       </Dialog>
 
       <Sheet open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-xl">
+        <SheetContent side="right" className="app-scroll w-full p-0 sm:max-w-xl">
           {detail && (
             <>
               <SheetHeader className="border-b">

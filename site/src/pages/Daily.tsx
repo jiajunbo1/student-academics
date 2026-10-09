@@ -178,7 +178,7 @@ function DailyKindView({ kind, classes, subjects }: { kind: DailyKind; classes: 
                   onOpen={() => setSheetId(l.id)} onEdit={() => setEditing(l)} onDelete={() => setDeleting(l)} />
               ))}
             </CardList>
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden md:block">
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>

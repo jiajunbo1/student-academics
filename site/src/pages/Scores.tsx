@@ -290,7 +290,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                     </RowCard>
                   ))}
                 </CardList>
-                <div className="hidden overflow-x-auto md:block">
+                <div className="hidden md:block">
                   <Table className="data-table">
                     <TableHeader>
                       <TableRow>
@@ -439,7 +439,7 @@ export default function Scores({ isAdmin }: { isAdmin: boolean }) {
                     );
                   })}
                 </CardList>
-                <div className="hidden overflow-x-auto md:block">
+                <div className="hidden md:block">
                   <Table className="data-table">
                     <TableHeader><TableRow><TableHead>学号</TableHead><TableHead>姓名</TableHead><TableHead className="w-40">分数</TableHead></TableRow></TableHeader>
                     <TableBody>

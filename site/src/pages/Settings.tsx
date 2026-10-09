@@ -182,7 +182,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                 />
               ))}
             </CardList>
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden md:block">
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
@@ -365,7 +365,7 @@ export default function SettingsPage({ isAdmin, me, onMeChanged }: {
                     />
                   ))}
                 </CardList>
-                <div className="hidden overflow-x-auto md:block">
+                <div className="hidden md:block">
                   <Table className="data-table">
                   <TableHeader>
                     <TableRow>
@@ -665,7 +665,7 @@ function AssignmentPicker({ subjects, classes, selected, onChange, colorOf }: {
             />
           </div>
 
-          <div className="max-h-72 overflow-y-auto p-1.5">
+          <div className="app-scroll max-h-72 p-1.5">
             {!groups.length ? (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground">没有匹配的科目或班级</p>
             ) : groups.map(({ subject, rows }) => {

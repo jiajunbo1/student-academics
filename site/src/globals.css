@@ -93,6 +93,12 @@
   /* 动效层：快出慢收的弹性曲线，接近系统抽屉手感 */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --blur-chrome: saturate(180%) blur(16px);
+
+  /* 滚动条唯一口径：8px 细条、轨道透明（玻璃面板下不糊成一块）、拇指色从 muted-foreground 混出来，
+     所以浅色深色自动跟随，不需要 .dark 分支。手机端在 max-767 里整体无条（见下面的媒体查询） */
+  --sb-size: 8px;
+  --sb-thumb: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  --sb-thumb-hi: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
 }
 
 .dark {
@@ -322,12 +328,51 @@ body {
   }
 }
 
+/* ── 滚动条统一口径（全站只这一段）──
+   Chromium / Safari 用伪元素画 8px 细条：圆角、透明轨道、色值从 --muted-foreground 混出来，
+   所以浅色深色自动跟随，贴在玻璃面板上也不会糊出一块硬边。
+   注意：一旦声明非 auto 的 scrollbar-width / scrollbar-color，Chromium 会**忽略** ::-webkit-scrollbar
+   系列规则，所以标准属性只发给不支持伪元素的引擎（Firefox），两者不能同时写。
+   窄屏由下面 max-767 那段未分层规则整体无条（未分层优先，所以盖得住这里）。 */
+*::-webkit-scrollbar {
+  width: var(--sb-size);
+  height: var(--sb-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: var(--sb-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-thumb-hi);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    /* 只需这一条：--sb-thumb 里的 color-mix 会被构建降级成「不支持就用实色 --muted-foreground」，
+       所以别在这里叠第二行兜底——var() 代入非法值属「computed-value 时非法」，整条取初始值 auto，
+       反而把上一行也丢掉。 */
+    scrollbar-color: var(--sb-thumb) transparent;
+  }
+}
+
 /* 表体限高滚动 + 表头吸顶。
    滚动必须发生在 shadcn 的 table-container 上：外层再套一个 overflow 容器，
    sticky 就会 relative 到那个永不纵向滚动的容器而失效，所以 max-height 由这里下发。
    分隔线画在 th 的 inset 阴影上，因为表头横线的 border 属于 tr，行吸住时线会跟着内容滚走。
    限高用 --table-max 由调用方给（[--table-max:52vh]），这里只留兜底值——不能写成
-   .scroll-body 的默认值，未分层规则会盖掉调用方那一层 utilities。 */
+   .scroll-body 的默认值，未分层规则会盖掉调用方那一层 utilities。
+   这里故意不写 scrollbar-gutter：面板自身有边框，预留会常驻一条 8px 空白贴在边框内侧。 */
 .scroll-body [data-slot="table-container"] {
   max-height: var(--table-max, 20rem);
   overflow: auto;
@@ -409,15 +454,21 @@ table th {
   animation: page-in 0.26s ease-out both;
 }
 
-/* 窄屏横向滚动：统计胶囊、总览表格要能滑，但不留可见滚动条 */
+/* 横向滑动容器（胶囊行、登记总览宽表）：桌面跟全站同一套细条，窄屏由 max-767 那段统一无条。
+   这里不再自己写 scrollbar-width: none —— 那会让同一类"能横滑"在桌面出现两种提示。 */
 .scroll-x {
   overflow-x: auto;
-  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
-.scroll-x::-webkit-scrollbar {
-  display: none;
+/* 纵向滚动容器（定高的那类：下拉面板、侧边抽屉）：滚动不穿透到页面，
+   并固定预留细条位置，内容高度跨过阈值时不再抽动 8px（窄屏无条，预留量自动为 0）。
+   高度随内容走的弹窗不要用它——预留的 8px 会变成常驻空白，把左右内边距拉得不齐。 */
+.app-scroll {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
 }
 
 /* ── 手机特效层：磨砂玻璃 + 弹性抽屉 + 去掉点击高亮块 ── */
